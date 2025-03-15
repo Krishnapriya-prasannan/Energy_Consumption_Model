@@ -1,0 +1,11 @@
+venv
+.env
+denormalized_dataset.csv
+__pycache__
+node_modules
+HomeC.csv
+project2.ipynb
+half_processed_dataset.csv
+HomeC_updated.csv
+hourly_processed_dataset.csv
+lightgbm_model3.pkl

@@ -1,0 +1,2 @@
+backend 
+pip install fastapi uvicorn mysql-connector-python sqlalchemy pandas requests beautifulsoup4 openai
