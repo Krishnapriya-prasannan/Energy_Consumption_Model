@@ -1,0 +1,44 @@
+.results-container {
+    max-width: 700px;
+    margin: 20px auto;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .title {
+    text-align: center;
+    color: #333;
+    font-size: 24px;
+    font-weight: bold;
+  }
+  
+  .bill-section {
+    text-align: center;
+    margin: 20px 0;
+  }
+  
+  .bill-amount {
+    font-size: 30px;
+    color: #4CAF50;
+    font-weight: bold;
+  }
+  
+  .graph-section, .feature-section, .recommendation-section {
+    margin-top: 20px;
+    background: #ffffff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  ul {
+    padding: 0;
+  }
+  
+  ul li {
+    list-style-type: none;
+    padding: 5px 0;
+  }
+  
