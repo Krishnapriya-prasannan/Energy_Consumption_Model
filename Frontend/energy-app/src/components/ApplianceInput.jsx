@@ -3,14 +3,20 @@ import axios from "axios";  // Import axios
 import "./ApplianceInput.css";
 
 const appliancesList = [
-  "Refrigerator",
+  "Dishwasher",
   "Air Conditioner",
+  "Heater",
+  "Computer Devices",
+  "Refrigertor",
   "Washing Machine",
-  "Microwave Oven",
-  "Television",
-  "Laptop",
-  "Ceiling Fan",
-  "Water Heater",
+  "Fans",
+  "Chimney",
+  "Food Processor",
+  "Induction Cooktop",
+  "Lights",
+  "Water Pump",
+  "Microwave",
+  "TV"
 ];
 
 const timeOptions = ["Morning", "Noon", "Evening", "Night"];
