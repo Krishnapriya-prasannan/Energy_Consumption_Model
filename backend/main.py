@@ -13,7 +13,7 @@ import random
 import pickle
 import pandas as pd
 import shap
-import numpy
+import numpy as np
 app = FastAPI(title="Energy Consumption Prediction API")
 
 # Configure CORS
@@ -38,7 +38,7 @@ def get_db():
         database=os.getenv("DB_NAME"),
         buffered=True
     )
-with open("../lightgbm_model3.pkl", "rb") as model_file:
+with open("../lightgbm_model6.pkl", "rb") as model_file:
     model = pickle.load(model_file)
 
 # Request models
@@ -347,7 +347,7 @@ def save_data_to_csv(data):
 
 
 def calculate_bill_amount(predictions):
-    max_energy = 14.714567  # Max energy for denormalization
+    max_energy = 20.714567  # Max energy for denormalization
 
     # Debug: Print raw prediction data
     print("Raw Prediction Data:", predictions)
@@ -365,7 +365,6 @@ def calculate_bill_amount(predictions):
     # Ensure the predictions data is a list
     if not isinstance(predictions, list):
         raise ValueError("Error: Expected a list of dictionaries but got something else.")
-
     # Convert predictions list into a DataFrame
     predicted_energy = pd.DataFrame(predictions)
 
@@ -427,7 +426,7 @@ def calculate_bill_amount(predictions):
 
 
 
-def get_recommendations(feature_data, model):
+def get_recommendations(feature_data):
     try:
         # Ensure feature_data contains all 27 features used in training
         if feature_data.shape[1] != 27:

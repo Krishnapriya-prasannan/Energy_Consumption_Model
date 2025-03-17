@@ -9,3 +9,6 @@ half_processed_dataset.csv
 HomeC_updated.csv
 hourly_processed_dataset.csv
 lightgbm_model3.pkl
+lightgbm_model4.pkl
+lightgbm_model5.pkl
+lightgbm_model6.pkl

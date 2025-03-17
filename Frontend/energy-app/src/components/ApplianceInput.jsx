@@ -7,7 +7,7 @@ const appliancesList = [
   "Air Conditioner",
   "Heater",
   "Computer Devices",
-  "Refrigertor",
+  "Refrigerator",
   "Washing Machine",
   "Fans",
   "Chimney",
@@ -21,7 +21,7 @@ const appliancesList = [
 
 const timeOptions = ["Morning", "Noon", "Evening", "Night"];
 
-const ApplianceInput = () => {
+const ApplianceInput = ({setPredictionData}) => {
   const [selectedAppliances, setSelectedAppliances] = useState({});
   const [location, setLocation] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -29,13 +29,19 @@ const ApplianceInput = () => {
 
   // Handle checkbox change for appliance selection
   const handleCheckboxChange = (appliance) => {
-    setSelectedAppliances((prev) => ({
-      ...prev,
-      [appliance]: prev[appliance]
-        ? undefined
-        : { power: "", count: 1, days: [], times: {}, usageTime: "" },
-    }));
+    setSelectedAppliances((prev) => {
+      const newAppliances = { ...prev };
+      
+      if (newAppliances[appliance]) {
+        delete newAppliances[appliance]; // Remove unchecked appliance
+      } else {
+        newAppliances[appliance] = { power: "", count: 1, days: [], times: {}, usageTime: "" };
+      }
+      
+      return newAppliances;
+    });
   };
+  
 
   // Handle input field change for appliances
   const handleInputChange = (appliance, field, value) => {
@@ -101,9 +107,11 @@ const ApplianceInput = () => {
 
   // Validate input before sending to backend
   const validateInputs = () => {
-    // Ensure all appliances have valid data
     for (const appliance in selectedAppliances) {
       const applianceData = selectedAppliances[appliance];
+      
+      if (!applianceData) continue; // Skip if undefined
+  
       if (
         !applianceData.power ||
         !applianceData.count ||
@@ -115,7 +123,7 @@ const ApplianceInput = () => {
     }
     return true;
   };
-
+  
   // Handle form submission and send data to backend
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -139,6 +147,7 @@ const ApplianceInput = () => {
         const response = await axios.post("http://localhost:5000/submit", dataToSend);
         
         console.log("🟢 Response received:", response.data);
+        setPredictionData(response.data);
         setMessage("Data submitted successfully!");
     } catch (error) {
         console.error("🔴 Error sending data:", error.response?.data || error.message);
