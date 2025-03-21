@@ -109,3 +109,22 @@ button:disabled {
 .days-selection button:hover {
   background: #2e7d32;
 }
+
+.bill-display {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f8f8;
+  border: 2px solid #4caf50;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.bill-display h2 {
+  color: #4caf50;
+}
+
+.bill-display p {
+  font-size: 24px;
+  font-weight: bold;
+}
+

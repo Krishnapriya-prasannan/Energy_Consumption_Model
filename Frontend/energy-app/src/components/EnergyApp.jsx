@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./EnergyApp.css";
+import Graphs from "./Graph"; 
 
 const EnergyPredictionApp = () => {
   const [location, setLocation] = useState("");
@@ -195,8 +196,17 @@ const EnergyPredictionApp = () => {
             </div>
           ))}
         </div>
-        <button onClick={handleSubmit} disabled={!location || !consumerNo || Object.keys(selectedAppliances).length === 0}>Submit</button>
+        <button onClick={handleSubmit} disabled={!location  || Object.keys(selectedAppliances).length === 0}>Submit</button>
       </div>
+       {/* BILL DISPLAY COMPONENT */}
+       {billAmount !== null && (
+        <div className="bill-display">
+          <h2>Estimated Electricity Bill</h2>
+          <p>₹ {billAmount}</p>
+        </div>
+      )}
+
+      <Graphs />
     </div>
   );
 };
