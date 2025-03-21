@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import "./EnergyApp.css";
 import Graphs from "./Graph"; 
+import Recommendations from "./Recommendations";
 
 const EnergyPredictionApp = () => {
   const [location, setLocation] = useState("");
@@ -207,6 +208,7 @@ const EnergyPredictionApp = () => {
       )}
 
       <Graphs />
+      <Recommendations recommendations={["Turn off lights when not in use", "Use energy-efficient appliances"]} />
     </div>
   );
 };
