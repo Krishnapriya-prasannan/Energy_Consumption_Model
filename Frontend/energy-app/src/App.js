@@ -1,14 +1,14 @@
 import React, { useState } from "react";
-import ApplianceInput from "./components/ApplianceInput";
-import Results from "./components/Results";
+import EnergyApp from "./components/EnergyApp";
+
 
 const App = () => {
   const [predictionData, setPredictionData] = useState(null);
 
   return (
     <div>
-      <ApplianceInput setPredictionData={setPredictionData} />
-      <Results data={predictionData} />
+      <EnergyApp setPredictionData={setPredictionData} />
+      
     </div>
   );
 };
