@@ -1,5 +1,5 @@
 body {
-  background-image: url('../assets/download.jpeg'); /* Add a relevant background image */
+  background-image: url('../assets/pic2.webp'); /* Add a relevant background image */
   background-size: cover;
   font-family: Arial, sans-serif;
   color: #fff;
@@ -10,7 +10,7 @@ body {
   max-width: 900px;
   margin: auto;
   padding: 20px;
-  background: rgba(0, 128, 0, 0.5); /* Increased transparency */
+  background: rgba(93, 139, 93, 0.2); /* Increased transparency */
   border-radius: 10px;
   box-shadow: 0px 0px 10px #000;
 }
@@ -18,7 +18,7 @@ body {
 .input-section {
   margin-bottom: 20px;
   padding: 15px;
-  background: #2e7d32;
+  background: #5c8a61;
   border-radius: 8px;
 }
 
@@ -46,7 +46,7 @@ button {
 }
 
 button:disabled {
-  background: grey;
+  background: rgb(18, 141, 38);
 }
 
 .graphs {
