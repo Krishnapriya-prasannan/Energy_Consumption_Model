@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import "./EnergyApp.css";
-import Graphs from "./Graph"; 
+import Graphs from "./Graph";
 import Recommendations from "./Recommendations";
+import CustomCalendar from "./CustomCalendar";
 
 const EnergyPredictionApp = () => {
   const [location, setLocation] = useState("");
@@ -9,6 +10,7 @@ const EnergyPredictionApp = () => {
   const [phase, setPhase] = useState("1-Phase");
   const [selectedAppliances, setSelectedAppliances] = useState({});
   const [billAmount, setBillAmount] = useState(null);
+  const [selectedDates, setSelectedDates] = useState([]); // ✅ Define state
 
   const appliancesList = [
     "Dishwasher", "Air Conditioner", "Heater", "Computer Devices", "Refrigerator",
@@ -62,48 +64,16 @@ const EnergyPredictionApp = () => {
     });
   };
 
-  const toggleTimeSelection = (appliance, day, time) => {
+  const selectAllAppliances = () => {
     setSelectedAppliances((prev) => {
-      const updated = { ...prev };
-
-      if (!updated[appliance]) return prev;
-
-      const currentTimes = updated[appliance].times[day] || [];
-      const updatedTimes = currentTimes.includes(time)
-        ? currentTimes.filter((t) => t !== time)
-        : [...currentTimes, time];
-
-      updated[appliance] = {
-        ...updated[appliance],
-        times: { ...updated[appliance].times, [day]: updatedTimes },
-      };
-
-      return { ...updated };
-    });
-  };
-
-  const selectAllTimesForDay = (appliance, day) => {
-    setSelectedAppliances((prev) => {
-      const updated = { ...prev };
-
-      if (!updated[appliance]) return prev;
-
-      const allSelected = updated[appliance].times[day]?.length === timesOfDay.length;
-      updated[appliance] = {
-        ...updated[appliance],
-        times: { ...updated[appliance].times, [day]: allSelected ? [] : [...timesOfDay] },
-      };
-
-      return { ...updated };
-    });
-  };
-
-  const selectAllDays = (appliance) => {
-    setSelectedAppliances((prev) => {
-      const updated = { ...prev };
-      updated[appliance].days = [...daysOfWeek];
-      updated[appliance].times = daysOfWeek.reduce((acc, day) => ({ ...acc, [day]: [] }), {});
-      return updated;
+      if (Object.keys(prev).length === appliancesList.length) {
+        return {};
+      }
+      const allSelected = {};
+      appliancesList.forEach((appliance) => {
+        allSelected[appliance] = { power: "", count: "", usage: "", days: [], times: {} };
+      });
+      return allSelected;
     });
   };
 
@@ -146,11 +116,18 @@ const EnergyPredictionApp = () => {
           <option>1-Phase</option>
           <option>3-Phase</option>
         </select>
-
+        
+        <div className="calendar-container">
+          <CustomCalendar selectedDates={selectedDates} setSelectedDates={setSelectedDates} />
+        </div>
+        
         <label>Select Appliances:</label>
-        <div className="appliance-list">
+        <button onClick={selectAllAppliances} className="select-all-btn">
+          {Object.keys(selectedAppliances).length === appliancesList.length ? "Deselect All" : "Select All"}
+        </button>
+        <div className="appliance-grid">
           {appliancesList.map((appliance) => (
-            <div key={appliance}>
+            <div key={appliance} className="appliance-item">
               <label>
                 <input
                   type="checkbox"
@@ -159,48 +136,65 @@ const EnergyPredictionApp = () => {
                 />
                 {appliance}
               </label>
-              {selectedAppliances[appliance] && (
-                <div className="appliance-details">
-                  <input type="number" placeholder="Power Rating (W)" value={selectedAppliances[appliance].power} onChange={(e) => handleApplianceChange(appliance, "power", e.target.value)} />
-                  <input type="number" placeholder="Count" value={selectedAppliances[appliance].count} onChange={(e) => handleApplianceChange(appliance, "count", e.target.value)} />
-                  <input type="text" placeholder="Usage Time (e.g., 2h30m)" value={selectedAppliances[appliance].usage} onChange={(e) => handleApplianceChange(appliance, "usage", e.target.value)} />
+            </div>
+          ))}
+        </div>
 
-                  <div className="days-selection">
-                    <label>Usage Days:</label>
-                    <button onClick={() => selectAllDays(appliance)}>Select All</button>
-                    <div className="horizontal-options">
-                      {daysOfWeek.map((day) => (
-                        <label key={day}>
-                          <input type="checkbox" checked={selectedAppliances[appliance].days.includes(day)} onChange={() => toggleDaySelection(appliance, day)} />
-                          {day}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {selectedAppliances[appliance].days.map((day) => (
-                    <div key={day} className="times-selection">
-                      <label>{day} - Time of Usage:</label>
-                      <button onClick={() => selectAllTimesForDay(appliance, day)}>Select All</button>
-                      <div className="horizontal-options">
+        {Object.keys(selectedAppliances).map((appliance) => (
+          <div key={appliance} className="appliance-details">
+            <h3>{appliance}</h3>
+            <input type="number" placeholder="Power Rating (W)" value={selectedAppliances[appliance].power} onChange={(e) => handleApplianceChange(appliance, "power", e.target.value)} />
+            <input type="number" placeholder="Count" value={selectedAppliances[appliance].count} onChange={(e) => handleApplianceChange(appliance, "count", e.target.value)} />
+            <input type="text" placeholder="Usage Time (e.g., 2h30m)" value={selectedAppliances[appliance].usage} onChange={(e) => handleApplianceChange(appliance, "usage", e.target.value)} />
+            <div className="days-selection">
+              <button onClick={() => toggleDaySelection(appliance, "all")}>Select All Days</button>
+              <div className="days-grid">
+                {daysOfWeek.map((day) => (
+                  <div key={day} className="day-item">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={selectedAppliances[appliance].days.includes(day)}
+                        onChange={() => toggleDaySelection(appliance, day)}
+                      />
+                      {day}
+                    </label>
+                    {selectedAppliances[appliance].days.includes(day) && (
+                      <div className="times-of-day">
                         {timesOfDay.map((time) => (
                           <label key={time}>
-                            <input type="checkbox" checked={selectedAppliances[appliance].times[day]?.includes(time)} onChange={() => toggleTimeSelection(appliance, day, time)} />
+                            <input
+                              type="checkbox"
+                              checked={selectedAppliances[appliance].times[day]?.includes(time)}
+                              onChange={() => {
+                                const updatedTimes = selectedAppliances[appliance].times[day] || [];
+                                if (updatedTimes.includes(time)) {
+                                  updatedTimes.splice(updatedTimes.indexOf(time), 1);
+                                } else {
+                                  updatedTimes.push(time);
+                                }
+                                handleApplianceChange(appliance, "times", {
+                                  ...selectedAppliances[appliance].times,
+                                  [day]: updatedTimes,
+                                });
+                              }}
+                            />
                             {time}
                           </label>
                         ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-        <button onClick={handleSubmit} disabled={!location  || Object.keys(selectedAppliances).length === 0}>Submit</button>
+          </div>
+        ))}
+        
+        <button onClick={handleSubmit} disabled={!location || Object.keys(selectedAppliances).length === 0}>Submit</button>
       </div>
-       {/* BILL DISPLAY COMPONENT */}
-       {billAmount !== null && (
+
+      {billAmount !== null && (
         <div className="bill-display">
           <h2>Estimated Electricity Bill</h2>
           <p>₹ {billAmount}</p>
@@ -209,6 +203,7 @@ const EnergyPredictionApp = () => {
 
       <Graphs />
       <Recommendations recommendations={["Turn off lights when not in use", "Use energy-efficient appliances"]} />
+     
     </div>
   );
 };

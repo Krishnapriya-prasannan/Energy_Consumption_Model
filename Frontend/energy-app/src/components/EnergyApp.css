@@ -91,9 +91,26 @@ button:disabled {
   justify-content: center;
 }
 
-.days-selection, .times-selection {
-  margin-top: 10px;
-  text-align: center;
+.days-selection {
+  display: flex;
+  flex-direction: column; /* Keep the days selection in a column */
+  align-items: center; /* Center align the days */
+}
+
+.days-grid {
+  display: flex; /* Use flexbox for the days */
+  justify-content: center; /* Center the days */
+  flex-wrap: wrap; /* Allow wrapping if there are too many days */
+}
+
+.times-of-day {
+  display: flex; /* Use flexbox for the times */
+  justify-content: center; /* Center the times */
+  margin-top: 10px; /* Add some space above the times */
+}
+
+.day-item {
+  margin: 0 10px; /* Add some horizontal spacing between days */
 }
 
 .days-selection button {
@@ -126,5 +143,38 @@ button:disabled {
 .bill-display p {
   font-size: 24px;
   font-weight: bold;
+}
+
+.appliance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.appliance-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.select-all-btn {
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.appliance-details-section {
+  margin-top: 20px;
+}
+
+.appliance-details {
+  border: 1px solid #ccc;
+  padding: 10px;
+  margin-bottom: 10px;
+  border-radius: 5px;
 }
 
