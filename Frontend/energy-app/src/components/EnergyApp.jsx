@@ -3,15 +3,17 @@ import "./EnergyApp.css";
 import Graphs from "./Graph";
 import Recommendations from "./Recommendations";
 import CustomCalendar from "./CustomCalendar";
-
-const EnergyPredictionApp = () => {
+import axios from "axios";
+const EnergyPredictionApp = ({setPredictionData}) => {
   const [location, setLocation] = useState("");
   const [consumerNo, setConsumerNo] = useState("");
   const [phase, setPhase] = useState("1-Phase");
   const [selectedAppliances, setSelectedAppliances] = useState({});
   const [billAmount, setBillAmount] = useState(null);
   const [selectedDates, setSelectedDates] = useState([]); // ✅ Define state
-
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  
   const appliancesList = [
     "Dishwasher", "Air Conditioner", "Heater", "Computer Devices", "Refrigerator",
     "Washing Machine", "Fans", "Chimney", "Food Processor", "Induction Cooktop",
@@ -92,13 +94,71 @@ const EnergyPredictionApp = () => {
     }
   };
 
-  const handleSubmit = () => {
-    if (!location || !consumerNo || Object.keys(selectedAppliances).length === 0) {
-      alert("Please fill in all required fields");
-      return;
+  const validateInputs = () => {
+    for (const appliance in selectedAppliances) {
+      const applianceData = selectedAppliances[appliance];
+  
+      if (!applianceData) continue; // Skip if undefined
+  
+      // Ensure numeric values are positive and required fields are filled
+      if (
+        !applianceData.power || isNaN(applianceData.power) || applianceData.power <= 0 ||
+        !applianceData.count || isNaN(applianceData.count) || applianceData.count <= 0 ||
+        !applianceData.usage || applianceData.usage.trim() === "" ||
+        !Array.isArray(applianceData.days) || applianceData.days.length === 0
+      ) {
+        return false;
+      }
+  
+      // Ensure at least one time slot is selected for each chosen day
+      for (const day of applianceData.days) {
+        if (!applianceData.times || !applianceData.times[day] || applianceData.times[day].length === 0) {
+          return false;
+        }
+      }
     }
-    setBillAmount((Math.random() * 100).toFixed(2));
+    return true;
   };
+  
+  
+  // Handle form submission and send data to backend
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setMessage("");
+
+    if (!validateInputs()) {
+        setIsLoading(false);
+        setMessage("Please fill in all the fields correctly.");
+        return;
+    }
+
+    const dataToSend = {
+        location,
+        appliances: selectedAppliances,
+        consumerNo,
+        phase,
+        selectedDates,
+    };
+
+    console.log("🔵 Sending data:", JSON.stringify(dataToSend, null, 2));
+
+    try {
+        const response = await axios.post("http://localhost:5000/submit", dataToSend);
+        
+        console.log("🟢 Response received:", response.data);
+        setPredictionData(response.data);
+        setMessage("Data submitted successfully!");
+    } catch (error) {
+        console.error("🔴 Error sending data:", error.response?.data || error.message);
+        setMessage("There was an error submitting the data.");
+    } finally {
+        setIsLoading(false);
+    }
+};
+
+
+  
 
   return (
     <div className="container">
@@ -190,8 +250,11 @@ const EnergyPredictionApp = () => {
             </div>
           </div>
         ))}
-        
-        <button onClick={handleSubmit} disabled={!location || Object.keys(selectedAppliances).length === 0}>Submit</button>
+        <button type="button" className="submit-btn" disabled={isLoading} onClick={handleSubmit}>
+  {isLoading ? "Submitting..." : "Submit"}
+</button>
+
+        {message && <p>{message}</p>}
       </div>
 
       {billAmount !== null && (
