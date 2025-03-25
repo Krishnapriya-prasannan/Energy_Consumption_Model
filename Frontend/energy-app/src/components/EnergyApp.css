@@ -100,12 +100,13 @@ button:disabled {
 .days-grid {
   display: flex; /* Use flexbox for the days */
   justify-content: center; /* Center the days */
-  flex-wrap: wrap; /* Allow wrapping if there are too many days */
+  align-items: center; /* Center align the days */
 }
 
 .times-of-day {
   display: flex; /* Use flexbox for the times */
   justify-content: center; /* Center the times */
+  flex-direction: column; /* Display days vertically */
   margin-top: 10px; /* Add some space above the times */
 }
 

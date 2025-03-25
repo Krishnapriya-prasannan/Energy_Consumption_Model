@@ -42,34 +42,10 @@ const EnergyPredictionApp = ({setPredictionData}) => {
     }));
   };
 
-  const toggleDaySelection = (appliance, day) => {
-    setSelectedAppliances((prev) => {
-      const updated = { ...prev };
-
-      if (!updated[appliance]) {
-        updated[appliance] = { power: "", count: "", usage: "", days: [], times: {} };
-      }
-
-      let updatedDays = [...updated[appliance].days];
-
-      if (updatedDays.includes(day)) {
-        updatedDays = updatedDays.filter((d) => d !== day);
-        delete updated[appliance].times[day];
-      } else {
-        updatedDays.push(day);
-        updated[appliance].times[day] = updated[appliance].times[day] || [];
-      }
-
-      updated[appliance] = { ...updated[appliance], days: updatedDays };
-
-      return { ...updated };
-    });
-  };
-
   const selectAllAppliances = () => {
     setSelectedAppliances((prev) => {
       if (Object.keys(prev).length === appliancesList.length) {
-        return {};
+        return {}; // Deselect all appliances
       }
       const allSelected = {};
       appliancesList.forEach((appliance) => {
@@ -78,7 +54,75 @@ const EnergyPredictionApp = ({setPredictionData}) => {
       return allSelected;
     });
   };
+  
 
+  const toggleAllDaysSelection = (appliance) => {
+    setSelectedAppliances((prev) => {
+      const updated = { ...prev };
+  
+      if (!updated[appliance]) {
+        updated[appliance] = { power: "", count: "", usage: "", days: [], times: {} };
+      }
+  
+      if (updated[appliance].days.length === daysOfWeek.length) {
+        // Deselect all days and clear times
+        updated[appliance] = { 
+          ...updated[appliance], 
+          days: [], 
+          times: {} 
+        };
+      } else {
+        // Select all days and keep existing time selections
+        updated[appliance] = { 
+          ...updated[appliance], 
+          days: [...daysOfWeek], 
+          times: daysOfWeek.reduce((acc, day) => {
+            acc[day] = updated[appliance].times[day] || [];
+            return acc;
+          }, {})
+        };
+      }
+  
+      return updated;
+    });
+  };
+  
+  
+  const toggleDaySelection = (appliance, day) => {
+    setSelectedAppliances((prev) => {
+      const updated = { ...prev };
+  
+      if (!updated[appliance]) {
+        updated[appliance] = { power: "", count: "", usage: "", days: [], times: {} };
+      }
+  
+      if (updated[appliance].days.includes(day)) {
+        // Remove the day and clear its time slots
+        updated[appliance] = {
+          ...updated[appliance],
+          days: updated[appliance].days.filter((d) => d !== day),
+          times: { ...updated[appliance].times }
+        };
+        delete updated[appliance].times[day];
+      } else {
+        // Add the day and keep time slots if any
+        updated[appliance] = {
+          ...updated[appliance],
+          days: [...updated[appliance].days, day],
+          times: {
+            ...updated[appliance].times,
+            [day]: updated[appliance].times[day] || []
+          }
+        };
+      }
+  
+      return updated;
+    });
+  };
+  
+  
+  
+  
   const fetchLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -207,7 +251,10 @@ const EnergyPredictionApp = ({setPredictionData}) => {
             <input type="number" placeholder="Count" value={selectedAppliances[appliance].count} onChange={(e) => handleApplianceChange(appliance, "count", e.target.value)} />
             <input type="text" placeholder="Usage Time (e.g., 2h30m)" value={selectedAppliances[appliance].usage} onChange={(e) => handleApplianceChange(appliance, "usage", e.target.value)} />
             <div className="days-selection">
-              <button onClick={() => toggleDaySelection(appliance, "all")}>Select All Days</button>
+            <button onClick={() => toggleAllDaysSelection(appliance)} className="select-all-btn">
+  {selectedAppliances[appliance]?.days.length === daysOfWeek.length ? "Deselect All" : "Select All Days"}
+</button>
+
               <div className="days-grid">
                 {daysOfWeek.map((day) => (
                   <div key={day} className="day-item">
@@ -221,6 +268,18 @@ const EnergyPredictionApp = ({setPredictionData}) => {
                     </label>
                     {selectedAppliances[appliance].days.includes(day) && (
                       <div className="times-of-day">
+                         <button
+      onClick={() => {
+        const allSelected = selectedAppliances[appliance].times[day]?.length === timesOfDay.length;
+        handleApplianceChange(appliance, "times", {
+          ...selectedAppliances[appliance].times,
+          [day]: allSelected ? [] : [...timesOfDay], // Select or Deselect All
+        });
+      }}
+      className="select-all-btn"
+    >
+      {selectedAppliances[appliance].times[day]?.length === timesOfDay.length ? "Deselect All" : "Select All Times"}
+    </button>
                         {timesOfDay.map((time) => (
                           <label key={time}>
                             <input
