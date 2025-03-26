@@ -179,3 +179,8 @@ button:disabled {
   border-radius: 5px;
 }
 
+input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+}
+
