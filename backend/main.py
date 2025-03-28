@@ -6,14 +6,15 @@ import requests
 import csv
 from datetime import datetime,timedelta
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
-from typing import Dict, List
+from pydantic import BaseModel, validator
+from typing import Dict, List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 import random
 import pickle
 import pandas as pd
 import shap
 import numpy as np
+from collections import defaultdict
 app = FastAPI(title="Energy Consumption Prediction API")
 
 # Configure CORS
@@ -28,6 +29,7 @@ app.add_middleware(
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
+KSEB_API_URL = os.getenv("KSEB_API_URL")
 
 # Database connection function
 def get_db():
@@ -38,10 +40,9 @@ def get_db():
         database=os.getenv("DB_NAME"),
         buffered=True
     )
-with open("../lightgbm_model6.pkl", "rb") as model_file:
+with open("../lightgbm_model10.pkl", "rb") as model_file:
     model = pickle.load(model_file)
 
-# Request models
 class Appliance(BaseModel):
     power: float
     count: int
@@ -49,10 +50,81 @@ class Appliance(BaseModel):
     days: List[str]
     times: Dict[str, List[str]]
 
+    @validator("power", pre=True)
+    def convert_power(cls, v):
+        if isinstance(v, str):
+            return float(v)  # Convert string to float
+        return v
+
+    @validator("count", pre=True)
+    def convert_count(cls, v):
+        if isinstance(v, str):
+            return int(v)  # Convert string to int
+        return v
+
 class EnergyRequest(BaseModel):
     appliances: Dict[str, Appliance]
     location: str
+    consumerNo: Optional[str] = None
+    phase: Optional[str] = None
+    selectedDates: Optional[List[str]] = None
 
+    @validator("appliances", pre=True)
+    def fix_appliance_usage_key(cls, v):
+        # Ensure 'usage' key is renamed to 'usageTime' dynamically
+        for appliance in v.values():
+            if "usage" in appliance:
+                appliance["usageTime"] = appliance.pop("usage")
+        return v
+    
+# Function to fetch past consumption data from KSEB API
+def fetch_past_consumption(consumer_id: str):
+    try:
+        print(f"\nFetching past consumption data for consumer_id: {consumer_id}") 
+        
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Connection": "keep-alive"
+        }
+        data = {"optionVal": consumer_id}
+        
+        response = requests.post(KSEB_API_URL, headers=headers, data=data)
+        response.raise_for_status()  # Raise error if request fails
+
+        consumption_data = response.json()
+        print("Consumption Data Fetched:\n", consumption_data)  # Display contents
+        return consumption_data
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching consumption data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching consumption data: {str(e)}")
+
+
+from datetime import datetime
+
+def format_consumption_data(consumption_data):
+    """
+    Formats consumption data from raw list to a dictionary with only the first six entries.
+    The year is removed, keeping only the month as the key.
+    
+    :param consumption_data: List of dicts containing 'billmonth' and 'totalConsumption'.
+    :return: Dictionary with formatted month as keys and consumption as values (only first six).
+    """
+    formatted_data = {}
+
+    for entry in consumption_data[:6]:  # Take only the first six entries
+        bill_month = entry["billmonth"]
+        formatted_month = datetime.strptime(bill_month, "%Y%m").strftime("%B")  # Convert to 'Month' format
+        total_consumption = entry["totalConsumption"]
+
+        formatted_data[formatted_month] = total_consumption  # Store in dictionary
+
+    # ✅ Print output before returning
+    print("\n=== Formatted Consumption Data (First 6 Entries, No Year) ===")
+    for month, consumption in formatted_data.items():
+        print(f"{month}: {consumption} units")
+
+    return formatted_data  # Return dictionary for easy use
 # Fetch and store weather data
 def fetch_and_store_weather_data(location: str, location_id: int, db):
     try:
@@ -68,6 +140,7 @@ def fetch_and_store_weather_data(location: str, location_id: int, db):
             "units": "metric"
         })
         weather_data = response.json()
+        print("Fetched Weather Data:", weather_data)  # Display the fetched data
 
         # Extract relevant weather details
         temperature = weather_data.get("main", {}).get("temp")
@@ -101,7 +174,216 @@ def fetch_and_store_weather_data(location: str, location_id: int, db):
     except Exception as e:
         print("Error fetching weather data:", str(e))
         return None
-def predict_energy_usage(csv_file_path):
+
+
+
+
+def fetch_historical_weather(location: str, start_date: str, end_date: str):
+    try:
+        # Parse location input
+        match = location.strip().split(", ")
+        if len(match) != 2:
+            raise ValueError("Invalid location format")
+
+        lat, lon = match[0].split(":")[1], match[1].split(":")[1]
+
+        # Convert start_date and end_date to previous year's same month and day
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+        previous_year = start_dt.year - 1  # Use previous year
+        start_date_prev_year = f"{previous_year}-{start_dt.month:02d}-{start_dt.day:02d}"
+        end_date_prev_year = f"{previous_year}-{end_dt.month:02d}-{end_dt.day:02d}"
+
+        # API call to fetch historical weather data
+        response = requests.get("https://archive-api.open-meteo.com/v1/archive", params={
+            "latitude": lat.strip(),
+            "longitude": lon.strip(),
+            "start_date": start_date_prev_year,
+            "end_date": end_date_prev_year,
+            "hourly": "temperature_2m,relative_humidity_2m,visibility,surface_pressure,wind_speed_10m,cloud_cover,wind_direction_10m,precipitation,precipitation_probability"
+        })
+
+        # Parse JSON response
+        weather_data = response.json()
+
+        if not isinstance(weather_data, dict) or "hourly" not in weather_data:
+            raise ValueError(f"Unexpected API response format: {weather_data}")
+
+        hourly_data = weather_data["hourly"]
+
+        if not isinstance(hourly_data, dict):
+            raise ValueError(f"Unexpected format for 'hourly' data: {hourly_data}")
+
+        # Extract hourly weather details safely
+        times = hourly_data.get("time", [])
+        temperatures = [temp if temp is not None else 0 for temp in hourly_data.get("temperature_2m", [])]
+        humidities = [hum if hum is not None else 0 for hum in hourly_data.get("relative_humidity_2m", [])]
+        visibilities = [vis if vis is not None else 0 for vis in hourly_data.get("visibility", [0] * len(times))]
+        pressures = [pres if pres is not None else 0 for pres in hourly_data.get("surface_pressure", [])]
+        wind_speeds = [wind if wind is not None else 0 for wind in hourly_data.get("wind_speed_10m", [])]
+        cloud_covers = [cloud if cloud is not None else 0 for cloud in hourly_data.get("cloud_cover", [])]
+        wind_bearings = [wind_bear if wind_bear is not None else 0 for wind_bear in hourly_data.get("wind_direction_10m", [])]
+        precip_intensities = [precip if precip is not None else 0 for precip in hourly_data.get("precipitation", [])]
+        precip_probabilities = [precip_prob if precip_prob is not None else 0 for precip_prob in hourly_data.get("precipitation_probability", [0] * len(times))]
+
+        # Group data by (month, day)
+        daily_data = defaultdict(lambda: {
+            "temperature": [],
+            "humidity": [],
+            "wind_speed": [],
+            "visibility": [],
+            "pressure": [],
+            "cloud_cover": [],
+            "wind_bearing": [],
+            "precip_intensity": [],
+            "precip_probability": []
+        })
+
+        for i in range(len(times)):
+            dt = datetime.strptime(times[i], "%Y-%m-%dT%H:%M")
+            key = (dt.month, dt.day)  # Use month and day as key
+
+            daily_data[key]["temperature"].append(temperatures[i])
+            daily_data[key]["humidity"].append(humidities[i])
+            daily_data[key]["wind_speed"].append(wind_speeds[i])
+            daily_data[key]["visibility"].append(visibilities[i])
+            daily_data[key]["pressure"].append(pressures[i])
+            daily_data[key]["cloud_cover"].append(cloud_covers[i])
+            daily_data[key]["wind_bearing"].append(wind_bearings[i])
+            daily_data[key]["precip_intensity"].append(precip_intensities[i])
+            daily_data[key]["precip_probability"].append(precip_probabilities[i])
+
+        # Calculate daily averages
+        daily_summary = []
+        for (month, day), values in daily_data.items():
+            daily_summary.append({
+                "month": month,
+                "day": day,
+                "avg_temperature": sum(values["temperature"]) / len(values["temperature"]),
+                "avg_humidity": sum(values["humidity"]) / len(values["humidity"]),
+                "avg_wind_speed": sum(values["wind_speed"]) / len(values["wind_speed"]),
+                "avg_visibility": sum(values["visibility"]) / len(values["visibility"]),
+                "avg_pressure": sum(values["pressure"]) / len(values["pressure"]),
+                "avg_cloud_cover": sum(values["cloud_cover"]) / len(values["cloud_cover"]),
+                "avg_wind_bearing": sum(values["wind_bearing"]) / len(values["wind_bearing"]),
+                "avg_precip_intensity": sum(values["precip_intensity"]) / len(values["precip_intensity"]),
+                "avg_precip_probability": sum(values["precip_probability"]) / len(values["precip_probability"])
+            })
+        print(f"data is {daily_summary}")
+        return daily_summary
+
+    except Exception as e:
+        print("Error fetching historical weather data:", str(e))
+        return None
+    
+def get_actual_usage(appliance_name, date, energy_request):
+    if not hasattr(energy_request, "appliances") or appliance_name not in energy_request.appliances:
+        print(f"Appliance {appliance_name} not found in energy request.")
+        return 0.0
+    
+    appliance = energy_request.appliances[appliance_name]
+    
+    if not hasattr(appliance, "days"):
+        print(f"Appliance {appliance_name} does not have usage days.")
+        return 0.0
+
+    day_of_week = date.strftime("%A")  # Get day name (e.g., Monday, Tuesday)
+    print(f"Checking usage for {appliance_name} on {day_of_week}")
+    
+    if day_of_week not in appliance.days:
+        print(f"Appliance {appliance_name} not used on {day_of_week}.")
+        return 0.0
+    
+    if hasattr(appliance, "usageTime"):
+        usage_str = appliance.usageTime
+        print(f"Raw usage time for {appliance_name}: {usage_str}")
+        
+        try:
+            return float(usage_str.replace("h", "").strip())  # ✅ Convert to float safely
+        except ValueError:
+            print(f"Invalid usage time format: {usage_str}")  # Debugging log
+            return 0.0  # Default to 0 if conversion fails
+
+    return 0.0
+
+
+""" def compute_max_use_per_day(future_dates, energy_request):
+    max_use_per_day = []
+    
+    for date in future_dates:
+        max_use = sum(
+            (appliance.power * appliance.count / 1000) *
+            get_actual_usage(appliance_name, date, energy_request)
+            for appliance_name, appliance in energy_request.appliances.items()
+        )
+        max_use_per_day.append(max_use)
+    
+    return np.array(max_use_per_day)
+
+def denormalize_predictions(predictions, future_dates, appliance_power_ratings, user_appliances, min_use=0):
+    max_use_per_day = []
+    
+    for i in range(len(future_dates)):
+        max_use = sum(
+            ((appliance_power_ratings.get(appliance, 0) * user_appliances.get(appliance, {}).count) / 1000) *
+get_actual_usage(appliance, future_dates[i], user_appliances)
+
+            for appliance in user_appliances
+        )
+        max_use_per_day.append(max_use)
+    
+    max_use_per_day = np.array(max_use_per_day)
+    
+    # Avoid zero values for proper scaling
+    max_use_per_day = np.maximum(max_use_per_day, 1e-6)
+    
+    # Denormalize predictions
+    denormalized_predictions = (predictions * (max_use_per_day - min_use)) + min_use
+    
+    # Create DataFrame
+    prediction_df = pd.DataFrame({"date": future_dates, "predicted_use": denormalized_predictions})
+    prediction_df["date"] = pd.to_datetime(prediction_df["date"])
+    
+    return prediction_df
+
+def predict_energy_usage(csv_file_path, model, appliance_power_ratings, user_appliances):
+    try:
+        if isinstance(user_appliances, dict):
+            user_appliances = {name: Appliance(**vars(data)) for name, data in user_appliances.items()}
+
+        data = pd.read_csv(csv_file_path)
+
+        if not hasattr(model, "feature_name_"):
+            raise ValueError("Model is not properly loaded or does not have feature names")
+
+        feature_columns = model.feature_name_
+
+        missing_features = [col for col in feature_columns if col not in data.columns]
+        if missing_features:
+            raise ValueError(f"CSV is missing required feature columns: {missing_features}")
+
+        data = data[feature_columns]
+        predictions = model.predict(data)
+        print(f"predict:{predictions}")
+        start_date = datetime.today()
+        future_dates = [start_date + timedelta(days=i) for i in range(len(predictions))]
+
+        denormalized_df = denormalize_predictions(predictions, future_dates, appliance_power_ratings, user_appliances)
+
+        total_energy_usage = round(denormalized_df["predicted_use"].sum(), 2)
+        print(f"Energy:{total_energy_usage}")
+        return {
+            "totalEnergyUsage": total_energy_usage,
+            "predicted_energy": denormalized_df.to_dict(orient="records"),
+            "future_dates": [date.strftime("%Y-%m-%d") for date in future_dates]  # Modify this if needed
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+"""
+
+
+def predict_energy_usage(csv_file_path, appliance_power_ratings, min_use, energy_request):
     try:
         # Load simulated data from CSV
         data = pd.read_csv(csv_file_path)
@@ -109,87 +391,206 @@ def predict_energy_usage(csv_file_path):
         # Ensure feature columns match model expectations
         feature_columns = model.feature_name_
         data = data[feature_columns]
+        print(f"Feature columns: {feature_columns}")  # Debugging log
 
-        # Predict energy consumption
+        # Predict energy consumption (normalized values)
         predictions = model.predict(data)
+        print(f"Predictions: {predictions}")  # Debugging log
 
-        # Generate future dates assuming each row represents a day
-        start_date = datetime.today()
-        future_dates = [start_date + timedelta(days=i) for i in range(len(predictions))]
+        # Convert selected dates to datetime format
+        selected_dates = sorted([datetime.strptime(date, "%a %b %d %Y") for date in energy_request.selectedDates])
+        print(f"Selected Dates: {selected_dates}")  # Debugging log
 
-        # Create DataFrame with required format
-        predicted_energy = pd.DataFrame({
-            "date": future_dates,
-            "predicted_use": predictions
+        # Compute daily max_use dynamically
+        max_use_per_day = []
+        for date in selected_dates:
+            max_use = sum(
+                ((appliance["power"] * appliance["count"]) / 1000) * 
+                get_actual_usage(appliance_name, date, energy_request) 
+                for appliance_name, appliance in appliance_power_ratings.items()
+            )
+            max_use_per_day.append(max_use)
+
+        max_use_per_day = np.array(max_use_per_day)
+        print(f"Max use per day: {max_use_per_day}")
+
+        # Handle division by zero by setting to a small value
+        max_use_per_day[max_use_per_day == 0] = 0  
+
+        # Denormalize predictions using daily max_use
+        denormalized_predictions = predictions * (max_use_per_day - min_use) + min_use
+
+        # Create DataFrame
+        prediction_df = pd.DataFrame({
+            "date": selected_dates,
+            "predicted_use": denormalized_predictions
         })
 
-        # Sum total energy usage over the 90 days
-        total_energy_usage = round(sum(predictions), 2)
+        # Convert 'date' to datetime format before merging
+        prediction_df["date"] = pd.to_datetime(prediction_df["date"])
 
+        # Ensure a complete date range, filling missing dates with zero consumption
+        full_date_range = pd.date_range(start=min(selected_dates), end=max(selected_dates))
+        full_prediction_df = pd.DataFrame({"date": full_date_range})
+
+        # Merge with predictions, filling missing values with 0
+        full_prediction_df = full_prediction_df.merge(prediction_df, on="date", how="left").fillna(0)
+
+        # Convert date column to string for output
+        full_prediction_df["date"] = full_prediction_df["date"].dt.strftime("%Y-%m-%d")
+
+        # Group by month & sum predicted use
+        full_prediction_df["year_month"] = pd.to_datetime(full_prediction_df["date"]).dt.to_period("M")
+        monthly_totals = full_prediction_df.groupby("year_month")["predicted_use"].sum().reset_index()
+
+        # Convert year_month to string
+        monthly_totals["year_month"] = monthly_totals["year_month"].astype(str)
+
+        # Sum total energy usage after filling missing dates
+        total_energy_usage = round(full_prediction_df["predicted_use"].sum(), 2)
+        all_dates = full_prediction_df["date"].tolist()
+        
+        print(f"Final Prediction Data: {full_prediction_df}")  # Debugging log
+        print(f"Monthly Totals: {monthly_totals}")  # Debugging log
+        print(f"All Dates: {all_dates}")  # Debugging log
+        
         return {
             "totalEnergyUsage": total_energy_usage,
-            "predicted_energy": predicted_energy.to_dict(orient="records")  # Convert to list of dicts
+            "predicted_energy": full_prediction_df.to_dict(orient="records"),
+            "monthly_forecast": monthly_totals.to_dict(orient="records"),
+            "all_dates": all_dates  # ✅ Includes all dates
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+
 @app.post("/predict-energy")
 async def predict_energy(request: EnergyRequest, db=Depends(get_db)):
-    appliances = request.appliances
-    location = request.location
     cursor = db.cursor()
 
-    # Check if the location exists in the database
-    cursor.execute("SELECT id FROM locations WHERE location_name = %s", (location,))
-    location_row = cursor.fetchone()
+    # Validate input data
+    if not request.selectedDates or len(request.selectedDates) < 2:
+        raise HTTPException(status_code=400, detail="Please provide at least two dates for weather data")
 
-    if location_row:
-        location_id = location_row[0]
-    else:
-        cursor.execute("INSERT INTO locations (location_name) VALUES (%s)", (location,))
-        location_id = cursor.lastrowid
-        db.commit()
+    appliances = request.appliances
+    location = request.location
+    past_consumption_data = None
 
-    # Fetch and store weather data
-    weather_data = fetch_and_store_weather_data(location, location_id, db)
-    if not weather_data:
-        raise HTTPException(status_code=400, detail="Could not fetch weather data")
-
-    # Insert appliances into DB
-    for appliance_name, appliance in appliances.items():
+    if request.consumerNo:
         try:
-            usage_hours = float(appliance.usageTime.replace("h", "").strip())  # Convert "3h" -> 3.0
+            past_consumption_data = fetch_past_consumption(request.consumerNo)
+            past_consumption_data = format_consumption_data(past_consumption_data)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching past consumption: {str(e)}")
+
+    # Check if location exists, else insert it
+    try:
+        cursor.execute("SELECT id FROM locations WHERE location_name = %s", (location,))
+        location_row = cursor.fetchone()
+        if location_row:
+            location_id = location_row[0]
+        else:
+            cursor.execute("INSERT INTO locations (location_name) VALUES (%s)", (location,))
+            db.commit()
+            location_id = cursor.lastrowid  
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    # Convert date format to YYYY-MM-DD
+    try:
+        formatted_dates = sorted([datetime.strptime(date, "%a %b %d %Y").strftime("%Y-%m-%d") for date in request.selectedDates])
+        start_date, end_date = formatted_dates[0], formatted_dates[-1]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Expected 'Tue Mar 11 2025' format")
+
+    # Fetch and store historical weather data
+    try:
+        weather_data = fetch_historical_weather(location, start_date, end_date)
+        if not weather_data:
+            raise HTTPException(status_code=400, detail="Could not fetch weather data")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Weather data fetch error: {str(e)}")
+    
+    # Insert appliances into the database
+    try:
+        for appliance_name, appliance in appliances.items():
+            usage_hours = float(appliance.usageTime.replace("h", "").strip()) if hasattr(appliance, "usageTime") else 0.0
+            days_data = json.dumps(appliance.days) if hasattr(appliance, "days") else "[]"
+            times_data = json.dumps(appliance.times) if hasattr(appliance, "times") else "{}"
 
             cursor.execute("""
                 INSERT INTO appliances (name, power_rating, count, usage_hours, usage_days, time_of_usage)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (
                 appliance_name,
-                appliance.power,
-                appliance.count,
+                appliance.power if hasattr(appliance, "power") else 0,  
+                appliance.count if hasattr(appliance, "count") else 1,  
                 usage_hours,
-                json.dumps(appliance.days),  # Serialize list as JSON
-                json.dumps(appliance.times)  # Serialize dict as JSON
+                days_data,
+                times_data
             ))
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Error inserting appliances: {str(e)}")
 
-    db.commit()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error inserting appliances: {str(e)}")
 
     # Simulate data and save to CSV
-    simulated_data = generate_simulated_data(appliances, weather_data)
-    csv_file_path = save_data_to_csv(simulated_data)
+    try:
+        simulated_data = generate_simulated_data(appliances, weather_data, formatted_dates)
+        if simulated_data.empty:
+            raise HTTPException(status_code=500, detail="Simulated data is empty")
+        csv_file_path = save_data_to_csv(simulated_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Simulation error: {str(e)}")
 
     # Run prediction using the trained LightGBM model
     try:
-        prediction_result = predict_energy_usage(csv_file_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        min_use=0
+        appliance_power_ratings = {
+    str(name): {"power": appliance.power, "count": appliance.count}  
+    for name, appliance in appliances.items()
+}
 
+        print(f"CSV Path: {csv_file_path}")
+        print(f"Appliance Power Ratings: {appliance_power_ratings}")  # Ensure keys are strings
+        print(f"Type of appliance_power_ratings: {type(appliance_power_ratings)}")
+
+
+        prediction_result = predict_energy_usage(csv_file_path, appliance_power_ratings, min_use, request)
+        print(f"Raw prediction result: {prediction_result}")
+
+        if not prediction_result or not isinstance(prediction_result, dict):
+            raise HTTPException(status_code=500, detail="Invalid prediction response format")
+
+        monthly_forecast = prediction_result.get("monthly_forecast", [])
+    
+    # Ensure it's a list
+        if isinstance(monthly_forecast, dict):  
+            monthly_forecast = [monthly_forecast] 
+
+        consumption_data = [
+    {"month": str(d["year_month"]), "units": d["predicted_use"]}
+    for d in monthly_forecast
+]
+
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+    print(f"consumption data :{consumption_data}")
     return {
         "prediction": prediction_result,
-        "billAmount": calculate_bill_amount(prediction_result["predicted_energy"]),  # Fix: Pass only the list
-        "recommendations": get_recommendations(prediction_result)
+        "billAmount": calculate_bill_amount(
+            [entry["predicted_use"] for entry in prediction_result["predicted_energy"]], 
+            request.phase
+),
+        "recommendations": get_recommendations(prediction_result),
+        "pastConsumption": past_consumption_data,  # Include past consumption in response
+        "weatherData": weather_data,  # Include weather data
+        "consumptionData": consumption_data  # Include consumption data for graph
     }
 
 
@@ -206,11 +607,7 @@ async def submit_data(request: EnergyRequest, db=Depends(get_db)):
 def home():
     return {"message": "Welcome to Energy Prediction API"}
 
-# Helper functions
 
-
-
-# Appliance name mapping
 appliance_mapping = {
     "Dishwasher": "Dishwasher",
     "Air Conditioner": "AirConditioner",
@@ -233,7 +630,7 @@ default_weather = {
     "temperature": 25,
     "humidity": 50,
     "windSpeed": 5,
-    "visibility": 10000,
+    "visibility": 0,
     "pressure": 1013,
     "cloudCover": 10,
     "windBearing": 180,
@@ -251,28 +648,32 @@ def is_valid_usage_time(hour, time_ranges):
     }
     return any(hour in hour_mapping.get(t, []) for t in time_ranges)
 
-def generate_simulated_data(appliances, weather_data):
-    """Generates simulated energy consumption data for 90 days based on user appliances and weather."""
+def generate_simulated_data(appliances, weather_records, selected_dates):
+    """Generates simulated energy consumption data only for selected dates based on user appliances and historical weather data."""
     
     simulated_data = []
-    today = datetime.now()
-
-    # Ensure weather_data is valid
-    weather_data = weather_data or {}
     
-    for i in range(90):  # Generate data for 90 days
-        current_date = today - timedelta(days=i)
+    if not selected_dates:
+        return pd.DataFrame()  # Return empty DataFrame if no dates selected
+    
+    selected_dates = sorted(selected_dates)  # Ensure dates are in order
+    
+    # Convert weather_records into a dictionary {(month, day): weather_data}
+    weather_dict = {(record["month"], record["day"]): record for record in weather_records}
+
+    for date_str in selected_dates:
+        current_date = datetime.strptime(date_str, "%Y-%m-%d")
         month, day, hour, weekday = current_date.month, current_date.day, current_date.hour, current_date.weekday()
+        
+        # Get historical weather data for the current date, fallback to default if not found
+        weather_data = weather_dict.get((month, day), default_weather)
 
         # Initialize row with 0s for all appliances
         row = {name: 0.0 for name in appliance_mapping.values()}
-
-        print(f"\nProcessing Data for {current_date.strftime('%Y-%m-%d %H:%M')}:")  # Debugging log
-
+        
         # Process each appliance
         for frontend_name, appliance_data in appliances.items():
             dataset_name = appliance_mapping.get(frontend_name.strip())
-            print(f"  - Appliance: {frontend_name} (Mapped: {dataset_name})")
 
             # Convert Pydantic model to dictionary if needed
             if hasattr(appliance_data, "model_dump"):  
@@ -281,150 +682,190 @@ def generate_simulated_data(appliances, weather_data):
                 appliance_data = appliance_data.dict()  # Pydantic v1
 
             if dataset_name and isinstance(appliance_data, dict):
-                print(f"✅ Entering IF condition for: {frontend_name}")  # Debugging
                 try:
                     usage_hours = float(appliance_data.get("usageTime", "0h").replace("h", "").strip())
                 except ValueError:
                     usage_hours = 0.0  # Handle invalid usageTime
 
                 power_rating = float(appliance_data.get("power", 0))  # Ensure power is float
-                print(f"    Power: {power_rating} kW, Usage Hours: {usage_hours}")
+                quantity = int(appliance_data.get("count", 1))  # Get number of appliances
 
-                # Calculate simulated energy usage with random variation
-                base_usage = usage_hours * power_rating * random.uniform(0.8, 1.2)
-                print(f"    Base Usage: {base_usage:.2f} kWh")
+                # Compute power usage (adapting from the previous method)
+                base_usage = usage_hours * quantity * power_rating
+                
+                # Adjust based on weather conditions
+                temperature = weather_data.get("avg_temperature", default_weather["temperature"])
+                humidity = weather_data.get("avg_humidity", default_weather["humidity"])
+                cloud_cover = weather_data.get("avg_cloud_cover", default_weather["cloudCover"])
+                
+                # Appliance-specific weather-based adjustments
+                if "AirConditioner" in dataset_name:
+                    if temperature > 30:
+                        base_usage *= 1.5  # Increase usage during hot weather
+                    elif temperature < 15:
+                        base_usage *= 0.8  # Decrease usage in cold weather
+                elif "Fan" in dataset_name and temperature > 25:
+                    base_usage *= 1.2
+                elif "Heater" in dataset_name and temperature < 10:
+                    base_usage *= 1.5
+                elif "Lights" in dataset_name and cloud_cover > 70:
+                    base_usage *= 1.1  # Increase light usage on cloudy days
+                
+                row[dataset_name] = round(base_usage, 2)  # Store rounded values
 
-                # Adjust based on temperature (higher temps increase AC usage, for example)
-                temperature = weather_data.get("temperature", default_weather["temperature"])
-                adjusted_usage = base_usage * (temperature / 300)
-
-                # Adjust for specific time of usage
-                for time_range in appliance_data.get("times", {}).values():
-                    if is_valid_usage_time(hour, time_range):
-                        adjusted_usage *= random.uniform(0.9, 1.1)  # Small variation
-
-                row[dataset_name] = round(adjusted_usage, 2)  # Store rounded values
-            else:
-                print(f"❌ Skipping {frontend_name} (dataset_name={dataset_name}, appliance_data={appliance_data})")
-                print(f"Type of appliance_data: {type(appliance_data)}")
-                print(f"appliance_data attributes: {dir(appliance_data)}")  # Debugging
-
-        # Add weather data to the row
+        # Add historical weather data to the row
         row.update({
-            "temperature": weather_data.get("temperature", default_weather["temperature"]),
-            "humidity": weather_data.get("humidity", default_weather["humidity"]),
-            "visibility": weather_data.get("visibility", default_weather["visibility"]),
-            "pressure": weather_data.get("pressure", default_weather["pressure"]),
-            "windSpeed": weather_data.get("windSpeed", default_weather["windSpeed"]),
-            "cloudCover": weather_data.get("cloudCover", default_weather["cloudCover"]),
-            "windBearing": weather_data.get("windBearing", default_weather["windBearing"]),
-            "precipIntensity": weather_data.get("precipIntensity", default_weather["precipIntensity"]),
-            "precipProbability": weather_data.get("precipProbability", default_weather["precipProbability"]),
+            "temperature": weather_data.get("avg_temperature", default_weather["temperature"]),
+            "humidity": weather_data.get("avg_humidity", default_weather["humidity"]),
+            "visibility": weather_data.get("avg_visibility", default_weather["visibility"]),
+            "pressure": weather_data.get("avg_pressure", default_weather["pressure"]),
+            "windSpeed": weather_data.get("avg_wind_speed", default_weather["windSpeed"]),
+            "cloudCover": weather_data.get("avg_cloud_cover", default_weather["cloudCover"]),
+            "windBearing": weather_data.get("avg_wind_bearing", default_weather["windBearing"]),
+            "precipIntensity": weather_data.get("avg_precip_intensity", default_weather["precipIntensity"]),
+            "precipProbability": weather_data.get("avg_precip_probability", default_weather["precipProbability"]),
             "month": month,
             "day": day,
             "hour": hour,
             "weekday": weekday
         })
 
-        # Debugging Row Data
-        print(f"Final row data: {row}\n")
-
         simulated_data.append(row)
 
-    return simulated_data
+    # Convert to DataFrame
+    df = pd.DataFrame(simulated_data)
+
+    # Convert selected_dates to datetime format and use it as the index
+    df.index = pd.to_datetime(selected_dates)
+    
+    return df
 
 def save_data_to_csv(data):
     """Saves the simulated data to a CSV file."""
     file_path = "simulated_data.csv"
-    with open(file_path, "w", newline="") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=list(data[0].keys()))
-        writer.writeheader()
-        writer.writerows(data)
+    
+    if isinstance(data, pd.DataFrame):
+        data.to_csv(file_path, index=False)  # Directly save Pandas DataFrame
+    elif isinstance(data, list) and data:  # Handle list of dicts
+        with open(file_path, "w", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=list(data[0].keys()))
+            writer.writeheader()
+            writer.writerows(data)
+    else:
+        raise ValueError("Invalid data format for CSV export")
+
     print(f"CSV saved successfully: {file_path}")  # Debugging Log
     return file_path
 
-
-
-
-def calculate_bill_amount(predictions):
-    max_energy = 20.714567  # Max energy for denormalization
-
-    # Debug: Print raw prediction data
-    print("Raw Prediction Data:", predictions)
-    print("🔍 Received data type:", type(predictions))  # Debugging print
-
-    if isinstance(predictions, dict):
-        print("🔍 Dictionary Keys:", predictions.keys())  # Check what keys exist
-
-    if isinstance(predictions, pd.DataFrame):
-        print("🔍 DataFrame Preview:\n", predictions.head())  # Show sample data
-
-    if not isinstance(predictions, list):
-        raise ValueError(f"Error: Expected a list of dictionaries but got {type(predictions)}.")
-
-    # Ensure the predictions data is a list
-    if not isinstance(predictions, list):
-        raise ValueError("Error: Expected a list of dictionaries but got something else.")
-    # Convert predictions list into a DataFrame
-    predicted_energy = pd.DataFrame(predictions)
-
-    # Debug: Print DataFrame after conversion
-    print("Converted DataFrame:\n", predicted_energy.head())
-
-    # Ensure required columns exist
-    if "predicted_use" not in predicted_energy.columns:
-        raise ValueError("Error: 'predicted_use' column is missing in prediction data.")
-
-    if "date" in predicted_energy.columns:
-        predicted_energy["date"] = pd.to_datetime(predicted_energy["date"])
-        predicted_energy["month"] = predicted_energy["date"].dt.month
+def scrape_kseb_bill(predicted_use, phase):
+    url = "https://bills.kseb.in/"
+    
+    # Define the payload for the request (you may need to update these fields)
+    payload = {
+        "tariff_id": 1,
+        "purpose_id": 15,
+        "phase": str(phase).split('-')[0],  # Extract only the number
+        "load": int(predicted_use * 1000),  # Convert kW to W
+    }
+    
+    headers = {"User-Agent": "Mozilla/5.0"}  # Some websites block bots without headers
+    
+    response = requests.post(url, data=payload, headers=headers)
+    
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Find the relevant HTML elements (e.g., <div>, <span>, etc.)
+        bill_amount = soup.find("span", {"id": "bill_total"})  # Update selector as needed
+        
+        if bill_amount:
+            return float(bill_amount.text.strip())
+        else:
+            print("Bill amount not found on page.")
+            return None
     else:
-        print("Warning: 'date' column missing in prediction data, using current month.")
-        predicted_energy["month"] = datetime.now().month  # Default to current month
+        print(f"Failed to fetch data, status code: {response.status_code}")
+        return None
 
-    # Denormalize predicted energy consumption
-    predicted_energy["predicted_use"] *= max_energy
+
+
+# Retrieve API URL from .env
+API_URL = os.getenv("KSEB_BILL_URL")
+def calculate_bill_amount(predictions, phase):
+    if not isinstance(predictions, list):
+        raise ValueError(f"Error: Expected a list but got {type(predictions)}.")
+
+    # Convert predictions list into a DataFrame
+    predicted_energy = pd.DataFrame({"predicted_use": predictions})
+    
+    print(f"Predicted Energy Data:\n{predicted_energy}")  # Debugging log
+
+    # Use the current month since no date column exists
+    predicted_energy["month"] = datetime.now().month  
 
     # Group by month to calculate total energy consumption per month
     monthly_consumption = predicted_energy.groupby("month")["predicted_use"].sum()
 
-    # Function to calculate the bill for a given month's consumption
-    def calculate_bill(units, phase="single"):
-        if units <= 500:
-            energy_cost = units * 7.60  # ₹7.60 per unit for ≤ 500 kWh
-        else:
-            energy_cost = (500 * 7.60) + ((units - 500) * 8.70)  # ₹8.70 per unit for > 500 kWh
+    bill_summary_single = {}
+    bill_summary_bi = {}
 
-        fixed_charge = 50 if phase == "single" else 125  # ₹50 for single-phase, ₹125 for three-phase
-        electricity_duty = units * 0.06  # ₹0.06 per unit duty
+    formatted_phase = str(phase).split('-')[0]  # Extract only the number
 
-        total_bill = energy_cost + fixed_charge + electricity_duty
-        return total_bill
+    print(f"Monthly Consumption: {monthly_consumption}")
 
-    # Calculate the bill for each month
-    bill_summary = {month: calculate_bill(units) for month, units in monthly_consumption.items()}
+    for month, units in monthly_consumption.items():
+        payload_single = {
+            "tariff_id": 1,
+            "purpose_id": 15,
+            "frequency": 1,  # Single-month billing
+            "WNL": 1,
+            "phase": formatted_phase,
+            "load": max(int(units*1000), 0)  # Ensure non-negative load
+        }
 
-    # Compute the total bill for the next 3 months
-    total_bill = sum(bill_summary.values())
+        payload_bi = {
+            "tariff_id": 1,
+            "purpose_id": 15,
+            "frequency": 2,  # Bi-monthly billing
+            "WNL": 1,
+            "phase": formatted_phase,
+            "load": max(int(units*1000), 0)
+        }
 
-    # Convert month numbers to names
-    month_names = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun", 
-                   7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
+        headers = {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+        print(f"Converted Load for API: {max(int(units * 1000), 0)} W")
 
-    # Convert to DataFrame for easy readability
-    bill_df = pd.DataFrame(list(bill_summary.items()), columns=["Month", "Bill Amount (₹)"])
-    bill_df["Month"] = bill_df["Month"].map(month_names)
+        try:
+            response_single = requests.post(API_URL, headers=headers, data=payload_single)
+            response_single.raise_for_status()
+            data_single = response_single.json()
+            print("Raw API Response:", data_single)
+            if data_single.get("err_flag") == 0 and "result_data" in data_single:
+                bill_summary_single[month] = data_single["result_data"]["tariff_values"].get("bill_total", {}).get("value", 0)
+            else:
+                print(f"API Error (Single-month) for Month {month}: {data_single}")
+                bill_summary_single[month] = 0
+        except requests.RequestException as e:
+            print(f"Request failed for Single-month billing (Month {month}): {e}")
+            bill_summary_single[month] = 0
 
-    print("Final Bill Summary:")
-    print(bill_df)
+        try:
+            response_bi = requests.post(API_URL, headers=headers, data=payload_bi)
+            response_bi.raise_for_status()
+            data_bi = response_bi.json()
+            print("Raw API Response bi:", data_bi)
+            if data_bi.get("err_flag") == 0 and "result_data" in data_bi:
+                bill_summary_bi[month] = data_bi["result_data"].get("bill_total", {}).get("value", 0)
+            else:
+                print(f"API Error (Bi-monthly) for Month {month}: {data_bi}")
+                bill_summary_bi[month] = 0
+        except requests.RequestException as e:
+            print(f"Request failed for Bi-monthly billing (Month {month}): {e}")
+            bill_summary_bi[month] = 0
 
-    return {
-        "monthly_bills": bill_summary,
-        "total_bill": total_bill
-    }
+    print(f"Total Bill (Single): {sum(bill_summary_single.values())}, Total Bill (Bi): {sum(bill_summary_bi.values())}")
 
-
-
+    return sum(bill_summary_single.values()) if len(monthly_consumption) == 1 else sum(bill_summary_bi.values())
 
 def get_recommendations(feature_data):
     try:

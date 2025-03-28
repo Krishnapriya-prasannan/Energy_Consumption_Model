@@ -23,4 +23,11 @@
       grid-template-columns: 1fr; /* 1 Column on Mobile */
     }
   }
+  .graph-title {
+    color: black; /* Change from white to black */
+    font-size: 20px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 10px;
+  }
   

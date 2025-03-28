@@ -171,11 +171,7 @@ const EnergyPredictionApp = ({setPredictionData}) => {
     setIsLoading(true);
     setMessage("");
 
-    if (!validateInputs()) {
-        setIsLoading(false);
-        setMessage("Please fill in all the fields correctly.");
-        return;
-    }
+    
 
     const dataToSend = {
         location,
