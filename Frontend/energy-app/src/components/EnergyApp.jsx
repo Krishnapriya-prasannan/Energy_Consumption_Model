@@ -320,7 +320,6 @@ const EnergyPredictionApp = ({setPredictionData}) => {
       )}
 
       <Graphs />
-      <Recommendations recommendations={["Turn off lights when not in use", "Use energy-efficient appliances"]} />
      
     </div>
   );

@@ -1,33 +1,64 @@
-import React from "react";
+import React, { useState } from "react";
 import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
-import "./CustomCalendar.css"; // Import the CSS file
+import "./CustomCalendar.css";
 
-const CustomCalendar = ({ selectedDates = [], setSelectedDates }) => {
+const CustomCalendar = ({ selectedDates, setSelectedDates }) => {
+  const [ranges, setRanges] = useState([]);
+  const [currentRange, setCurrentRange] = useState([]);
+  const [clickTimeout, setClickTimeout] = useState(null);
+
+  // 🔥 Ensure selectedDates is a Set
+  const selectedDatesSet = new Set(selectedDates);
+
   const handleDateChange = (date) => {
     const dateString = date.toDateString();
 
-    if (selectedDates.length === 0) {
-      setSelectedDates([dateString]); // First date selection
-    } else if (selectedDates.length === 1) {
-      const startDate = new Date(selectedDates[0]);
-      const endDate = new Date(date);
+    if (selectedDatesSet.has(dateString)) {
+      // Remove date
+      setSelectedDates((prev) => {
+        const updated = new Set(prev);
+        updated.delete(dateString);
+        return [...updated]; // Convert back to array for React state
+      });
 
-      if (startDate > endDate) {
-        [startDate, endDate] = [endDate, startDate]; // Ensure start is before end
+      setRanges((prev) =>
+        prev.map((range) => range.filter((d) => d !== dateString)).filter((r) => r.length > 0)
+      );
+
+      return;
+    }
+
+    if (clickTimeout) {
+      clearTimeout(clickTimeout);
+      setClickTimeout(null);
+
+      if (currentRange.length === 0) {
+        setCurrentRange([dateString]);
+      } else if (currentRange.length === 1) {
+        let startDate = new Date(currentRange[0]);
+        let endDate = new Date(dateString);
+
+        if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
+
+        const newRange = [];
+        let tempDate = new Date(startDate);
+        while (tempDate <= endDate) {
+          newRange.push(tempDate.toDateString());
+          tempDate.setDate(tempDate.getDate() + 1);
+        }
+
+        setRanges((prev) => [...prev, newRange]);
+        setSelectedDates((prev) => [...prev, ...newRange]); // Convert to array for React state
+        setCurrentRange([]);
       }
-
-      const newSelectedDates = [];
-      let currentDate = new Date(startDate);
-
-      while (currentDate <= endDate) {
-        newSelectedDates.push(currentDate.toDateString());
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      setSelectedDates(newSelectedDates);
     } else {
-      setSelectedDates([dateString]); // Reset selection if a third date is clicked
+      setClickTimeout(
+        setTimeout(() => {
+          setClickTimeout(null);
+          setSelectedDates((prev) => [...prev, dateString]); // Convert to array
+        }, 250)
+      );
     }
   };
 
@@ -37,7 +68,7 @@ const CustomCalendar = ({ selectedDates = [], setSelectedDates }) => {
       <Calendar
         onClickDay={handleDateChange}
         tileClassName={({ date }) =>
-          selectedDates.includes(date.toDateString()) ? "selected-date" : null
+          selectedDatesSet.has(date.toDateString()) ? "selected-date" : "" // Now `has` works!
         }
       />
     </div>

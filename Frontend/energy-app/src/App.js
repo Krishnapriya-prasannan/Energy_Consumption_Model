@@ -58,20 +58,22 @@ const App = () => {
     <div>
       {/* Show EnergyApp form always */}
       <EnergyApp setPredictionData={setPredictionData} />
-
+  
       {/* Show graphs and recommendations only after form submission */}
       {predictionData && (
         <>
           {console.log("Transformed Weather Data:", transformedData.weatherData)}
           {console.log("Transformed Past Consumption Data:", transformedData.pastConsumption)}
           {console.log("Transformed Consumption Data:", transformedData.consumptionData)}
-
+  
           <EnergyGraphs data={transformedData} />
-          <Recommendations recommendations={predictionData.recommendations || []} />
+          <Recommendations recommendations={predictionData.recommendations} />
+          
         </>
       )}
     </div>
   );
+  
 };
 
 export default App;

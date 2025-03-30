@@ -15,6 +15,18 @@ import pandas as pd
 import shap
 import numpy as np
 from collections import defaultdict
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
+import time
+import openai  
+import google.generativeai as genai
+
+
 app = FastAPI(title="Energy Consumption Prediction API")
 
 # Configure CORS
@@ -30,6 +42,7 @@ app.add_middleware(
 from dotenv import load_dotenv
 load_dotenv()
 KSEB_API_URL = os.getenv("KSEB_API_URL")
+GENAI_API_KEY = os.getenv("GENAI_API_KEY")
 
 # Database connection function
 def get_db():
@@ -308,79 +321,160 @@ def get_actual_usage(appliance_name, date, energy_request):
     return 0.0
 
 
-""" def compute_max_use_per_day(future_dates, energy_request):
-    max_use_per_day = []
-    
-    for date in future_dates:
-        max_use = sum(
-            (appliance.power * appliance.count / 1000) *
-            get_actual_usage(appliance_name, date, energy_request)
-            for appliance_name, appliance in energy_request.appliances.items()
-        )
-        max_use_per_day.append(max_use)
-    
-    return np.array(max_use_per_day)
 
-def denormalize_predictions(predictions, future_dates, appliance_power_ratings, user_appliances, min_use=0):
-    max_use_per_day = []
-    
-    for i in range(len(future_dates)):
-        max_use = sum(
-            ((appliance_power_ratings.get(appliance, 0) * user_appliances.get(appliance, {}).count) / 1000) *
-get_actual_usage(appliance, future_dates[i], user_appliances)
+class BillRequest(BaseModel):
+    lat: float
+    lon: float
+    predicted_use: float  # Monthly consumption in kWh
+    phase: str  # '1' or '3'
 
-            for appliance in user_appliances
-        )
-        max_use_per_day.append(max_use)
-    
-    max_use_per_day = np.array(max_use_per_day)
-    
-    # Avoid zero values for proper scaling
-    max_use_per_day = np.maximum(max_use_per_day, 1e-6)
-    
-    # Denormalize predictions
-    denormalized_predictions = (predictions * (max_use_per_day - min_use)) + min_use
-    
-    # Create DataFrame
-    prediction_df = pd.DataFrame({"date": future_dates, "predicted_use": denormalized_predictions})
-    prediction_df["date"] = pd.to_datetime(prediction_df["date"])
-    
-    return prediction_df
 
-def predict_energy_usage(csv_file_path, model, appliance_power_ratings, user_appliances):
+# 🔥 Function to determine the STATE from latitude & longitude
+def get_state_from_coords(lat, lon):
+    geocode_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}"
+    response = requests.get(geocode_url).json()
+    return response.get("address", {}).get("state", "Unknown")
+
+
+# 🔥 Function to Scrape KSEB Tariff
+def scrape_kseb_tariff():
+    # ✅ Install & manage ChromeDriver
+    service = Service(ChromeDriverManager().install())
+    
+    # ✅ Set up WebDriver
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless")  # Run in the background
+    driver = webdriver.Chrome(service=service, options=options)
+
     try:
-        if isinstance(user_appliances, dict):
-            user_appliances = {name: Appliance(**vars(data)) for name, data in user_appliances.items()}
+        # ✅ Open the KSEB webpage
+        url = "https://kseb.in/articledetail/eyJpdiI6Ik5kd25uUUxzYmRZN2FiQk1iRmRQOWc9PSIsInZhbHVlIjoiRkxKQjRmc09mMWl1blg3aXY2UTdIQT09IiwibWFjIjoiZGI3YzVjMjc4NWQ2ZGFhY2Y2MjQ5MmEyNThlZTc1ZDlmZGM3M2NkODkzNGQ5YmE1NjE5NDYyNmU5MDE5MmI5OCIsInRhZyI6IiJ9"
+        driver.get(url)
 
-        data = pd.read_csv(csv_file_path)
+        # ✅ Wait for the tariff table to load
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "table"))
+        )
 
-        if not hasattr(model, "feature_name_"):
-            raise ValueError("Model is not properly loaded or does not have feature names")
+        time.sleep(5)  # ✅ Give time for JavaScript to load
 
-        feature_columns = model.feature_name_
+        # ✅ Get the page source
+        soup = BeautifulSoup(driver.page_source, "html.parser")
 
-        missing_features = [col for col in feature_columns if col not in data.columns]
-        if missing_features:
-            raise ValueError(f"CSV is missing required feature columns: {missing_features}")
+        # ✅ Debug: Check if any tables exist
+        tables = soup.find_all("table")
+        print(f"✅ Found {len(tables)} tables on the page.")
 
-        data = data[feature_columns]
-        predictions = model.predict(data)
-        print(f"predict:{predictions}")
-        start_date = datetime.today()
-        future_dates = [start_date + timedelta(days=i) for i in range(len(predictions))]
+        if not tables:
+            print("❌ No tables found. The webpage structure might have changed.")
+            return {}
 
-        denormalized_df = denormalize_predictions(predictions, future_dates, appliance_power_ratings, user_appliances)
+        table = tables[0]  # Select the first table (modify if needed)
 
-        total_energy_usage = round(denormalized_df["predicted_use"].sum(), 2)
-        print(f"Energy:{total_energy_usage}")
-        return {
-            "totalEnergyUsage": total_energy_usage,
-            "predicted_energy": denormalized_df.to_dict(orient="records"),
-            "future_dates": [date.strftime("%Y-%m-%d") for date in future_dates]  # Modify this if needed
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
-"""
+        # ✅ Extract table rows
+        rows = table.find_all("tr")
+        data = []
+
+        for row in rows:
+            cols = row.find_all("td")
+            cols = [col.text.strip().replace("\n\t\t\t", " ") for col in cols if col.text.strip()]  # Clean data
+            if cols:
+                data.append(cols)
+
+        # ✅ Extract "LT-1 Domestic" Tariff Data
+        household_tariff = {}
+        start_index = None
+
+        for i, row in enumerate(data):
+            if "LT- 1- Domestic" in row[0]:  # Find starting point
+                start_index = i + 2  # Skip headers
+            elif start_index and "LT-" in row[0]:  # Stop at next category
+                break
+            elif start_index:
+                household_tariff[row[0]] = row[1:]
+
+        # ✅ Debugging Output
+        print("\n🔹 KSEB Household Tariff Rates 🔹")
+        for category, rates in household_tariff.items():
+            print(f"{category}: {rates}")
+
+        # ✅ Save data as JSON
+        with open("kseb_household_tariff.json", "w") as f:
+            json.dump(household_tariff, f, indent=4)
+
+        return household_tariff
+
+    finally:
+        driver.quit()  # ✅ Close browser
+
+
+def calculate_bill(predicted_use, phase):
+    """
+    Calculate the electricity bill using KSEB's tariff structure for a bi-monthly cycle.
+    
+    Args:
+        predicted_use (int): Units consumed.
+        phase (str): "1" for single-phase, "3" for three-phase.
+    
+    Returns:
+        float: Total bill amount rounded to 2 decimal places.
+    """
+    if phase=='1-Phase':
+        phase = "1"
+    else:
+        phase= "3"
+    print(f"Calculating bill for Usage: {predicted_use} kWh, Phase: {phase}, Cycle: Bi-monthly")
+
+    energy_charge_slabs = [
+    (100, 3.35),   # First 100 units → ₹3.35/unit
+    (100, 4.25),   # Next 100 units (101-200) → ₹4.25/unit
+    (100, 5.35),   # Next 100 units (201-300) → ₹5.35/unit
+    (100, 7.20),   # Next 100 units (301-400) → ₹7.20/unit
+    (100, 8.50),   # Next 100 units (401-500) → ₹8.50/unit
+    (500, 8.25),   # For 501-1000 units → ₹8.25/unit
+        (float("inf"), 9.20)  # Above 1000 units → ₹9.20/unit
+    ]
+
+    # Compute Energy Charge
+    remaining_units = predicted_use
+    energy_cost = 0
+    for slab_limit, rate in energy_charge_slabs:
+        if remaining_units > 0:
+            units_in_this_slab = min(remaining_units, slab_limit)
+            energy_cost += units_in_this_slab * rate
+            remaining_units -= units_in_this_slab
+        else:
+            break
+
+    # Round Energy Cost
+    energy_cost = round(energy_cost, 2)
+    
+    # Electricity Duty (10% of EC)
+    duty = round(energy_cost * 0.10, 2)
+
+    # Bi-monthly Fuel Surcharge
+    fuel_surcharge = 6.56  
+
+    # Fixed Charges (Bi-monthly cycle)
+    fixed_charges = {"1": 90, "3": 240}
+    fixed_charge = fixed_charges[phase]
+
+    # Meter Rent (Bi-monthly cycle)
+    meter_rent = {"1": 12, "3": 30}
+    meter_rent_value = meter_rent[phase]
+
+    # Subsidy (varies for phase)
+    fixed_charge_subsidy = -40 if phase == "1" else 0
+    ec_subsidy = -29 if (phase == "1" and predicted_use <= 50) else 0
+
+    # Final Bill Calculation
+    total_bill = (
+        energy_cost + duty + fuel_surcharge + fixed_charge + meter_rent_value
+        + fixed_charge_subsidy + ec_subsidy
+    )
+    print(f"Total Bill: {total_bill} ₹")  # Debugging log
+    return round(total_bill, 2)
+
 
 
 def predict_energy_usage(csv_file_path, appliance_power_ratings, min_use, energy_request):
@@ -389,7 +483,7 @@ def predict_energy_usage(csv_file_path, appliance_power_ratings, min_use, energy
         data = pd.read_csv(csv_file_path)
 
         # Ensure feature columns match model expectations
-        feature_columns = model.feature_name_
+        feature_columns = getattr(model, "feature_names_in_", data.columns)  
         data = data[feature_columns]
         print(f"Feature columns: {feature_columns}")  # Debugging log
 
@@ -560,7 +654,7 @@ async def predict_energy(request: EnergyRequest, db=Depends(get_db)):
 
 
         prediction_result = predict_energy_usage(csv_file_path, appliance_power_ratings, min_use, request)
-        print(f"Raw prediction result: {prediction_result}")
+        print(f"Raw prediction result{prediction_result}")
 
         if not prediction_result or not isinstance(prediction_result, dict):
             raise HTTPException(status_code=500, detail="Invalid prediction response format")
@@ -581,13 +675,24 @@ async def predict_energy(request: EnergyRequest, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
     print(f"consumption data :{consumption_data}")
+    """try:
+        tariff_data=scrape_kseb_tariff()
+        print(f"Tariff Data: {tariff_data}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching tariff data: {str(e)}")"""
+
     return {
         "prediction": prediction_result,
+        "bill": calculate_bill(sum(entry["predicted_use"] for entry in prediction_result["predicted_energy"]), request.phase),
         "billAmount": calculate_bill_amount(
             [entry["predicted_use"] for entry in prediction_result["predicted_energy"]], 
             request.phase
 ),
-        "recommendations": get_recommendations(prediction_result),
+        "recommendations": get_recommendations(
+    prediction_result["predicted_energy"],
+    past_consumption_data,
+    request.appliances
+    ),
         "pastConsumption": past_consumption_data,  # Include past consumption in response
         "weatherData": weather_data,  # Include weather data
         "consumptionData": consumption_data  # Include consumption data for graph
@@ -757,35 +862,6 @@ def save_data_to_csv(data):
     print(f"CSV saved successfully: {file_path}")  # Debugging Log
     return file_path
 
-def scrape_kseb_bill(predicted_use, phase):
-    url = "https://bills.kseb.in/"
-    
-    # Define the payload for the request (you may need to update these fields)
-    payload = {
-        "tariff_id": 1,
-        "purpose_id": 15,
-        "phase": str(phase).split('-')[0],  # Extract only the number
-        "load": int(predicted_use * 1000),  # Convert kW to W
-    }
-    
-    headers = {"User-Agent": "Mozilla/5.0"}  # Some websites block bots without headers
-    
-    response = requests.post(url, data=payload, headers=headers)
-    
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        # Find the relevant HTML elements (e.g., <div>, <span>, etc.)
-        bill_amount = soup.find("span", {"id": "bill_total"})  # Update selector as needed
-        
-        if bill_amount:
-            return float(bill_amount.text.strip())
-        else:
-            print("Bill amount not found on page.")
-            return None
-    else:
-        print(f"Failed to fetch data, status code: {response.status_code}")
-        return None
 
 
 
@@ -867,12 +943,16 @@ def calculate_bill_amount(predictions, phase):
 
     return sum(bill_summary_single.values()) if len(monthly_consumption) == 1 else sum(bill_summary_bi.values())
 
-def get_recommendations(feature_data):
+""" def get_recommendations(feature_data):
     try:
+        if isinstance(feature_data, dict):
+            feature_data = pd.DataFrame([feature_data])  # Convert dict to DataFrame
+        print(f"Feature Data for SHAP: {feature_data}")  # Debugging log
+        print(f"Feature Data Shape: {feature_data.shape}")  # Debugging log
+
         # Ensure feature_data contains all 27 features used in training
         if feature_data.shape[1] != 27:
             return ["Feature mismatch: Expected 27 features but got {}.".format(feature_data.shape[1])]
-
         # Initialize SHAP explainer
         explainer = shap.Explainer(model)
 
@@ -886,20 +966,81 @@ def get_recommendations(feature_data):
 
         # Sort features by importance
         sorted_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)
-
+        print("Sorted Features:", sorted_features)  # Debugging log
         # Generate recommendations based on high-impact features
         recommendations = []
         for feature, impact in sorted_features[:3]:  # Top 3 influential features
             if "AC" in feature:
+                print(f"AC usage detected in feature: {feature}")
                 recommendations.append("Your AC usage is high. Reduce usage or use energy-efficient settings.")
             elif "Heater" in feature:
+                print(f"Heater usage detected in feature: {feature}")
                 recommendations.append("Consider using a thermostat or energy-efficient heating solutions.")
             elif "PeakHours" in feature:
+                print(f"Peak hours detected in feature: {feature}")
                 recommendations.append("Shift some appliance usage to non-peak hours to save on electricity bills.")
             else:
+                print(f"General recommendation for feature: {feature}")
                 recommendations.append(f"Optimize your usage of {feature} to lower energy consumption.")
 
         return recommendations
+
+    except Exception as e:
+        return [f"Error generating recommendations: {str(e)}"] """
+
+
+
+
+def get_recommendations(predicted_energy, past_consumption, appliances):
+    try:
+        if not GENAI_API_KEY:
+            return ["Error: Missing GenAI API key. Check your .env file."]
+
+        # Configure GenAI with API key
+        genai.configure(api_key=GENAI_API_KEY)
+
+        # Select the best model dynamically
+        
+        # Ensure past consumption is a DataFrame
+        if isinstance(past_consumption, dict):
+            past_consumption = pd.DataFrame([past_consumption])
+        elif not isinstance(past_consumption, pd.DataFrame):
+            return ["Error: past_consumption should be a DataFrame or a dictionary."]
+
+        print(f"Predicted Energy Usage: {predicted_energy}")
+        print(f"Past Consumption Data:\n{past_consumption}")
+        print(f"Appliance Details: {appliances}")
+
+        # Convert predicted_energy list to average usage
+        if isinstance(predicted_energy, list) and predicted_energy:
+            predicted_energy = sum(d["predicted_use"] for d in predicted_energy) / len(predicted_energy)
+        elif isinstance(predicted_energy, list) and not predicted_energy:
+            return ["Error: No predicted energy data provided."]
+        elif not isinstance(predicted_energy, (int, float)):
+            return ["Error: predicted_energy should be a number or a list of dictionaries with 'predicted_use'."]
+
+        # Generate structured prompt for GenAI
+        prompt = f"""
+        The predicted energy usage is **{predicted_energy:.2f} kWh**.
+        
+        **Past Energy Consumption Data:**
+        ```
+        {past_consumption.to_string(index=False)}
+        ```
+
+        **User's Appliances:** {", ".join(appliances)}
+
+        **Provide recommendations including:**
+        - Optimization strategies for using appliances efficiently.
+        - General energy-saving tips.
+        - Specific suggestions based on past consumption trends.
+        """
+
+        # Call the best available Google GenAI model
+        model = genai.GenerativeModel("models/gemini-2.0-flash-001")
+        response = model.generate_content(prompt)
+        print(f"GenAI Response: {response}")  # Debugging log   
+        return response.text.split("\n") if response.text else ["No recommendations received."]
 
     except Exception as e:
         return [f"Error generating recommendations: {str(e)}"]
