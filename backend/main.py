@@ -1021,26 +1021,33 @@ def get_recommendations(predicted_energy, past_consumption, appliances):
 
         # Generate structured prompt for GenAI
         prompt = f"""
-        The predicted energy usage is **{predicted_energy:.2f} kWh**.
-        
-        **Past Energy Consumption Data:**
-        ```
-        {past_consumption.to_string(index=False)}
-        ```
+Predicted energy usage: {predicted_energy:.2f} kWh
 
-        **User's Appliances:** {", ".join(appliances)}
+Past Energy Consumption Data:
+{past_consumption.to_string(index=False)}
 
-        **Provide recommendations including:**
-        - Optimization strategies for using appliances efficiently.
-        - General energy-saving tips.
-        - Specific suggestions based on past consumption trends.
-        """
+User's Appliances: {", ".join(appliances)}
+
+Provide 3-4 short and specific recommendations, including:
+- Appliance optimization strategies  
+- General energy-saving tips  
+- Suggestions based on comparing past consumption with predicted energy usage   
+
+Avoid unnecessary formatting, symbols or emojis,also no need of bold.
+"""
+
 
         # Call the best available Google GenAI model
         model = genai.GenerativeModel("models/gemini-2.0-flash-001")
         response = model.generate_content(prompt)
         print(f"GenAI Response: {response}")  # Debugging log   
-        return response.text.split("\n") if response.text else ["No recommendations received."]
-
+        # Clean the response by removing checkmarks and unnecessary symbols
+        if response.text:
+            formatted_response = response.text.replace("✅", "").replace("✔️", "").replace("❌", "").strip()
+            # Return the response as a list of recommendations
+            return [line.strip() for line in formatted_response.split("\n") if line.strip()]
+        else:
+            return ["No recommendations received."]
+    
     except Exception as e:
         return [f"Error generating recommendations: {str(e)}"]

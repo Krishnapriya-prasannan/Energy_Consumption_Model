@@ -21,7 +21,7 @@ const EnergyPredictionApp = ({setPredictionData}) => {
   ];
 
   const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const timesOfDay = ["Morning", "Noon", "Evening", "Night"];
+  //const timesOfDay = ["Morning", "Noon", "Evening", "Night"];
 
   const handleApplianceSelect = (appliance) => {
     setSelectedAppliances((prev) => {
@@ -262,43 +262,7 @@ const EnergyPredictionApp = ({setPredictionData}) => {
                       />
                       {day}
                     </label>
-                    {selectedAppliances[appliance].days.includes(day) && (
-                      <div className="times-of-day">
-                         <button
-      onClick={() => {
-        const allSelected = selectedAppliances[appliance].times[day]?.length === timesOfDay.length;
-        handleApplianceChange(appliance, "times", {
-          ...selectedAppliances[appliance].times,
-          [day]: allSelected ? [] : [...timesOfDay], // Select or Deselect All
-        });
-      }}
-      className="select-all-btn"
-    >
-      {selectedAppliances[appliance].times[day]?.length === timesOfDay.length ? "Deselect All" : "Select All Times"}
-    </button>
-                        {timesOfDay.map((time) => (
-                          <label key={time}>
-                            <input
-                              type="checkbox"
-                              checked={selectedAppliances[appliance].times[day]?.includes(time)}
-                              onChange={() => {
-                                const updatedTimes = selectedAppliances[appliance].times[day] || [];
-                                if (updatedTimes.includes(time)) {
-                                  updatedTimes.splice(updatedTimes.indexOf(time), 1);
-                                } else {
-                                  updatedTimes.push(time);
-                                }
-                                handleApplianceChange(appliance, "times", {
-                                  ...selectedAppliances[appliance].times,
-                                  [day]: updatedTimes,
-                                });
-                              }}
-                            />
-                            {time}
-                          </label>
-                        ))}
-                      </div>
-                    )}
+        
                   </div>
                 ))}
               </div>
