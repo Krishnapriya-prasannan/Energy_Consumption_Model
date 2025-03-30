@@ -12,12 +12,16 @@ const App = () => {
   const transformData = (data) => {
     if (!data) return { weatherData: [], pastConsumption: [], consumptionData: [] };
 
-    const weatherData = data.weatherData?.map((entry) => ({
-      month: entry.month,
-      temp: entry.avg_temperature,
-      humidity: entry.avg_humidity,
-      windSpeed: entry.avg_wind_speed,
-    })) || [];
+    const weatherData = data.weatherData?.map((entry) => {
+      const formattedDate = `${String(entry.day).padStart(2, '0')}-${String(entry.month).padStart(2, '0')}`;
+      return {
+        date: formattedDate, // Use "date" instead of separate day and month
+        temp: entry.avg_temperature,
+        humidity: entry.avg_humidity,
+        windSpeed: entry.avg_wind_speed,
+      };
+    }) || [];
+  
 
     const pastConsumption = Object.entries(data.pastConsumption || {}).map(([month, pastUnits]) => ({
       month,

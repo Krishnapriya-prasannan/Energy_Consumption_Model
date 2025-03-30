@@ -17,7 +17,7 @@ const EnergyGraphs = ({ data }) => {
   <ResponsiveContainer width="100%" height={300}>
     <LineChart data={weatherData}>
       <CartesianGrid strokeDasharray="3 3" stroke="gray" />
-      <XAxis dataKey="month" tick={{ fontSize: 14, fill: 'black' }} />
+      <XAxis dataKey="date" tick={{ fontSize: 14, fill: 'black' }} />
       <YAxis tick={{ fontSize: 14, fill: 'black' }} />
       <Tooltip contentStyle={{ fontSize: 14 }} />
       <Legend wrapperStyle={{ fontSize: 16, fontWeight: 'bold', color: 'black' }} />
