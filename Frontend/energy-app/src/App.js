@@ -23,10 +23,12 @@ const App = () => {
     }) || [];
   
 
-    const pastConsumption = Object.entries(data.pastConsumption || {}).map(([month, pastUnits]) => ({
+    let pastConsumption = Object.entries(data.pastConsumption || {}).map(([month, pastUnits]) => ({
       month,
       pastUnits,
     }));
+    pastConsumption = pastConsumption.reverse(); // Reverse the array to show the most recent month first
+
     const consumptionData = data.prediction?.predicted_energy?.map((entry) => {
       const dateObj = new Date(entry.date);
       const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`; // Format: DD-MM
