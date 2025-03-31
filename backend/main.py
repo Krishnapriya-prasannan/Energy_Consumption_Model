@@ -543,15 +543,18 @@ def predict_energy_usage(csv_file_path, appliance_power_ratings, min_use, energy
         # Sum total energy usage after filling missing dates
         total_energy_usage = round(full_prediction_df["predicted_use"].sum(), 2)
         all_dates = full_prediction_df["date"].tolist()
-        
+        total_monthly_forecast = round(monthly_totals["predicted_use"].sum(), 2)
+
         print(f"Final Prediction Data: {full_prediction_df}")  # Debugging log
         print(f"Monthly Totals: {monthly_totals}")  # Debugging log
         print(f"All Dates: {all_dates}")  # Debugging log
-        
+        print(f"Total Monthly Forecast: {total_monthly_forecast}")  # Debugging log
+
         return {
             "totalEnergyUsage": total_energy_usage,
             "predicted_energy": full_prediction_df.to_dict(orient="records"),
             "monthly_forecast": monthly_totals.to_dict(orient="records"),
+            "total_monthly_forecast": total_monthly_forecast,
             "all_dates": all_dates  # ✅ Includes all dates
         }
 
@@ -673,6 +676,7 @@ async def predict_energy(request: EnergyRequest, db=Depends(get_db)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+    total_monthly_forecast = prediction_result.get("total_monthly_forecast", 0)
 
     print(f"consumption data :{consumption_data}")
     """try:
@@ -683,9 +687,9 @@ async def predict_energy(request: EnergyRequest, db=Depends(get_db)):
 
     return {
         "prediction": prediction_result,
-        "bill": calculate_bill(sum(entry["predicted_use"] for entry in prediction_result["predicted_energy"]), request.phase),
+        "totalMonthlyForecast": total_monthly_forecast,
         "billAmount": calculate_bill_amount(
-            [entry["predicted_use"] for entry in prediction_result["predicted_energy"]], 
+            consumption_data, 
             request.phase
 ),
         "recommendations": get_recommendations(
@@ -867,81 +871,78 @@ def save_data_to_csv(data):
 
 # Retrieve API URL from .env
 API_URL = os.getenv("KSEB_BILL_URL")
-def calculate_bill_amount(predictions, phase):
-    if not isinstance(predictions, list):
-        raise ValueError(f"Error: Expected a list but got {type(predictions)}.")
 
-    # Convert predictions list into a DataFrame
-    predicted_energy = pd.DataFrame({"predicted_use": predictions})
+
+def calculate_bill_amount(consumption_data, phase):
+    if not isinstance(consumption_data, list):
+        raise ValueError(f"Error: Expected a list but got {type(consumption_data)}.")
+
+    # Convert consumption data into a DataFrame
+    df = pd.DataFrame(consumption_data)
     
-    print(f"Predicted Energy Data:\n{predicted_energy}")  # Debugging log
+    print(f"Consumption Data:\n{df}")  # Debugging log
 
-    # Use the current month since no date column exists
-    predicted_energy["month"] = datetime.now().month  
-
-    # Group by month to calculate total energy consumption per month
-    monthly_consumption = predicted_energy.groupby("month")["predicted_use"].sum()
-
-    bill_summary_single = {}
-    bill_summary_bi = {}
-
+    # Sort data by month
+    df = df.sort_values(by="month")
+    
+    # Aggregate energy consumption per month
+    monthly_consumption = df.groupby("month")["units"].sum()
+    
+    sorted_months = sorted(monthly_consumption.keys())  # Sorted list of months
     formatted_phase = str(phase).split('-')[0]  # Extract only the number
 
-    print(f"Monthly Consumption: {monthly_consumption}")
-
-    for month, units in monthly_consumption.items():
-        payload_single = {
-            "tariff_id": 1,
-            "purpose_id": 15,
-            "frequency": 1,  # Single-month billing
-            "WNL": 1,
-            "phase": formatted_phase,
-            "load": max(int(units*1000), 0)  # Ensure non-negative load
-        }
-
-        payload_bi = {
-            "tariff_id": 1,
-            "purpose_id": 15,
-            "frequency": 2,  # Bi-monthly billing
-            "WNL": 1,
-            "phase": formatted_phase,
-            "load": max(int(units*1000), 0)
-        }
-
+    bill_summary = {}
+    total_bill = 0
+    
+    i = 0
+    while i < len(sorted_months):
+        if i + 1 < len(sorted_months):  # Process bi-monthly
+            month1, month2 = sorted_months[i], sorted_months[i + 1]
+            units = monthly_consumption[month1] + monthly_consumption[month2]
+            payload = {
+                "tariff_id": 1,
+                "purpose_id": 15,
+                "frequency": 2,  # Bi-monthly billing
+                "WNL": max(int(units), 0),
+                "phase": formatted_phase
+            }
+            i += 2  # Move by 2 months
+        else:  # Process single-month if one month remains
+            month1 = sorted_months[i]
+            units = monthly_consumption[month1]
+            payload = {
+                "tariff_id": 1,
+                "purpose_id": 15,
+                "frequency": 1,  # Single-month billing
+                "WNL": max(int(units), 0),
+                "phase": formatted_phase
+            }
+            i += 1  # Move by 1 month
+        
         headers = {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
-        print(f"Converted Load for API: {max(int(units * 1000), 0)} W")
 
         try:
-            response_single = requests.post(API_URL, headers=headers, data=payload_single)
-            response_single.raise_for_status()
-            data_single = response_single.json()
-            print("Raw API Response:", data_single)
-            if data_single.get("err_flag") == 0 and "result_data" in data_single:
-                bill_summary_single[month] = data_single["result_data"]["tariff_values"].get("bill_total", {}).get("value", 0)
+            response = requests.post(API_URL, headers=headers, data=payload)
+            response.raise_for_status()
+            data = response.json()
+            print("Raw API Response:", data)
+            if data.get("err_flag") == 0 and "result_data" in data:
+                bill_value = data["result_data"].get("tariff_values", {}).get("bill_total", {}).get("value", 0)
+                print(f"Bill Value for Month {month1}: {bill_value}")  
+                bill_summary[month1] = bill_value
+                total_bill += bill_value
+
+
             else:
-                print(f"API Error (Single-month) for Month {month}: {data_single}")
-                bill_summary_single[month] = 0
+                print(f"API Error for Month {month1}: {data}")
+                bill_summary[month1] = 0
         except requests.RequestException as e:
-            print(f"Request failed for Single-month billing (Month {month}): {e}")
-            bill_summary_single[month] = 0
+            print(f"Request failed for Month {month1}: {e}")
+            bill_summary[month1] = 0
+    
+    print(f"Total Bill: {total_bill}")
+    return total_bill
 
-        try:
-            response_bi = requests.post(API_URL, headers=headers, data=payload_bi)
-            response_bi.raise_for_status()
-            data_bi = response_bi.json()
-            print("Raw API Response bi:", data_bi)
-            if data_bi.get("err_flag") == 0 and "result_data" in data_bi:
-                bill_summary_bi[month] = data_bi["result_data"].get("bill_total", {}).get("value", 0)
-            else:
-                print(f"API Error (Bi-monthly) for Month {month}: {data_bi}")
-                bill_summary_bi[month] = 0
-        except requests.RequestException as e:
-            print(f"Request failed for Bi-monthly billing (Month {month}): {e}")
-            bill_summary_bi[month] = 0
-
-    print(f"Total Bill (Single): {sum(bill_summary_single.values())}, Total Bill (Bi): {sum(bill_summary_bi.values())}")
-
-    return sum(bill_summary_single.values()) if len(monthly_consumption) == 1 else sum(bill_summary_bi.values())
 
 """ def get_recommendations(feature_data):
     try:
