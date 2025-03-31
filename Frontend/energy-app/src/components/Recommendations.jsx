@@ -7,7 +7,9 @@ const Recommendations = ({ recommendations }) => {
       <h2>AI-Based Energy-Saving Recommendations</h2>
       <ul>
         {recommendations.length > 0 ? (
-          recommendations.map((tip, index) => <li key={index}>✅ {tip}</li>)
+          recommendations.map((tip, index) => (
+            <li key={index}>✅ {tip}</li>
+          ))
         ) : (
           <li>No recommendations available. Please enter appliance details.</li>
         )}
