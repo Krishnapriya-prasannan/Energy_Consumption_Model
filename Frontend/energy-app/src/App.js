@@ -59,6 +59,8 @@ const App = () => {
 */
   // Transform data before passing it to EnergyGraphs
   const transformedData = transformData(predictionData);
+  const totalMonthlyForecast = predictionData?.totalMonthlyForecast || 0;
+  const billAmount = predictionData?.billAmount || 0;
 
   return (
     <div>
@@ -71,7 +73,8 @@ const App = () => {
           {console.log("Transformed Weather Data:", transformedData.weatherData)}
           {console.log("Transformed Past Consumption Data:", transformedData.pastConsumption)}
           {console.log("Transformed Consumption Data:", transformedData.consumptionData)}
-  
+          <h2>Total Monthly Forecast: {totalMonthlyForecast} kWh</h2>
+          <h2>Estimated Bill Amount: ₹{billAmount}</h2>
           <EnergyGraphs data={transformedData} />
           <Recommendations recommendations={predictionData.recommendations} />
           
