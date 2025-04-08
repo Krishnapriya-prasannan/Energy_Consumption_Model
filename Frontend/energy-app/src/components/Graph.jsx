@@ -5,10 +5,31 @@ import {
 } from 'recharts';
 import './Graph.css';
 
+const getPreviousMonthAbbr = (month) => {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const fullMonths = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  
+  const index = fullMonths.indexOf(month);
+  return index > 0 ? months[index - 1] : null; // Get previous month abbreviation
+};
+
+const formatPastConsumptionData = (data) => {
+  return data.map((entry) => {
+    const prevMonth = getPreviousMonthAbbr(entry.month);
+    const curMonthAbbr = entry.month.substring(0, 3); // Convert to abbreviation
+    return {
+      ...entry,
+      month: prevMonth ? `${prevMonth}-${curMonthAbbr}` : curMonthAbbr, // Format as "PrevMonth-CurMonth"
+    };
+  });
+};
+
+
 const EnergyGraphs = ({ data }) => {
   if (!data) return null;
 
   const { weatherData, pastConsumption, consumptionData, recommendations } = data;
+  const formattedPastConsumption = formatPastConsumptionData(pastConsumption);
 
   return (
     <div className="graphs-container">
@@ -34,7 +55,7 @@ const EnergyGraphs = ({ data }) => {
       <div className="graph-box">
         <h2 className="graph-title">Past Consumption</h2>
         <ResponsiveContainer width="100%" height={450}>
-          <BarChart data={pastConsumption} margin={{ top: 20, right: 50, left: 50, bottom: 20 }}>
+          <BarChart data={formattedPastConsumption} margin={{ top: 20, right: 50, left: 50, bottom: 20 }}>
             <CartesianGrid stroke="rgba(0, 0, 0, 0.3)" strokeWidth={1.5} strokeDasharray="5 5" />
             <XAxis dataKey="month" tick={{ fontSize: 14, fill: '#333', fontWeight: "bold" }} stroke="#333" />
             <YAxis tick={{ fontSize: 14, fill: '#333', fontWeight: "bold" }} stroke="#333" />
@@ -43,7 +64,7 @@ const EnergyGraphs = ({ data }) => {
             <Bar dataKey="pastUnits" fill="#4caf50" barSize={50} radius={[8, 8, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </div> 
 
       {/* Units Consumed */}
       <div className="graph-box">

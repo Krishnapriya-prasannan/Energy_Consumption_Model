@@ -677,7 +677,7 @@ async def predict_energy(request: EnergyRequest, db=Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
     total_monthly_forecast = prediction_result.get("total_monthly_forecast", 0)
-
+    print(f"appliances:{request.appliances}")
     print(f"consumption data :{consumption_data}")
     """try:
         tariff_data=scrape_kseb_tariff()
