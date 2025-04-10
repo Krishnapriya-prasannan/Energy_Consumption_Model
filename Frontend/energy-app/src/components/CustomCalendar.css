@@ -1,30 +1,69 @@
 .calendar-container {
-    margin: 40px 0 20px;
-    display: flex;
-    justify-content: center;
-    text-align: center; 
-  }
-.calendar-container .react-calendar {
-    background: transparent;
+  margin: 40px 0 20px;
+  display: flex;
+  justify-content: center;
+  text-align: center;
 }
-  .selected-date {
-    background-color: #4CAF50 !important;
-    color: white !important;
-    border-radius: 50%;
-  }
+
+/* Main calendar container */
+.react-calendar {
+  width: 100%;
+  max-width: 400px;
+  background: hsl(117, 18%, 54%); /* Dim background instead of white */
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* Tile (day) styling */
+.react-calendar__tile {
+  background: hsl(120, 17%, 98%); /* Dim tile background */
+  color: #0f0f0f;
+}
+
+/* Current day styling */
 .react-calendar__tile--now {
-    color: black !important;
+  background: #e0e0e0 !important; /* Slightly darker for current day */
+  color: black !important;
 }
-  .react-calendar {
-    width: 100%;
-    max-width: 400px;
-    background: white;
-    border-radius: 10px;
-    padding: 10px;
-  }
-  
-  .react-calendar__tile--active {
-    background-color: #4CAF50 !important;
-    color: white !important;
-  }
-  
+
+/* Selected date styling */
+.selected-date {
+  background-color: #4CAF50 !important;
+  color: white !important;
+  border-radius: 50%;
+}
+
+/* Active/hover state */
+.react-calendar__tile--active {
+  background-color: #4CAF50 !important;
+  color: rgb(88, 109, 83) !important;
+}
+
+/* Navigation buttons */
+.react-calendar__navigation button {
+  background: hsl(123, 19%, 39%); /* Dim navigation buttons */
+  color: #181515;
+}
+
+/* Month/year view */
+.react-calendar__month-view {
+  background: #f5f5f5; /* Ensure month view matches */
+}
+
+/* Weekdays row */
+.react-calendar__month-view__weekdays {
+  background: #597458; /* Slightly darker for weekdays */
+}
+
+/* Neighboring month days */
+.react-calendar__tile--neighboringMonth {
+  background: #575353; /* Different shade for neighboring months */
+  color: #161515;
+}
+
+/* Disabled dates */
+.react-calendar__tile:disabled {
+  background: #e7e3e3;
+  color: #b1a6a6;
+}

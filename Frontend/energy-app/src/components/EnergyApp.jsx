@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import "./EnergyApp.css";
 import Graphs from "./Graph";
-import Recommendations from "./Recommendations";
 import CustomCalendar from "./CustomCalendar";
 import axios from "axios";
 const EnergyPredictionApp = ({setPredictionData}) => {
@@ -245,7 +244,7 @@ const EnergyPredictionApp = ({setPredictionData}) => {
             <h3>{appliance}</h3>
             <input type="number" placeholder="Power Rating (W)" value={selectedAppliances[appliance].power} onChange={(e) => handleApplianceChange(appliance, "power", e.target.value)} />
             <input type="number" placeholder="Count" value={selectedAppliances[appliance].count} onChange={(e) => handleApplianceChange(appliance, "count", e.target.value)} />
-            <input type="text" placeholder="Usage Time (e.g., 2h30m)" value={selectedAppliances[appliance].usage} onChange={(e) => handleApplianceChange(appliance, "usage", e.target.value)} />
+            <input type="text" placeholder="Usage Time (e.g., 2.5h)" value={selectedAppliances[appliance].usage} onChange={(e) => handleApplianceChange(appliance, "usage", e.target.value)} />
             <div className="days-selection">
             <button onClick={() => toggleAllDaysSelection(appliance)} className="select-all-btn">
   {selectedAppliances[appliance]?.days.length === daysOfWeek.length ? "Deselect All" : "Select All Days"}

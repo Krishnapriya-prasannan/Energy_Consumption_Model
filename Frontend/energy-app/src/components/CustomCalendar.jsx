@@ -66,11 +66,22 @@ const CustomCalendar = ({ selectedDates, setSelectedDates }) => {
     <div className="calendar-container">
       <h3 style={{ textAlign: "center" }}>Select Usage Dates :</h3>
       <Calendar
-        onClickDay={handleDateChange}
-        tileClassName={({ date }) =>
-          selectedDatesSet.has(date.toDateString()) ? "selected-date" : "" // Now `has` works!
-        }
-      />
+  onClickDay={handleDateChange}
+  tileClassName={({ date }) =>
+    selectedDatesSet.has(date.toDateString()) ? "selected-date" : ""
+  }
+  tileDisabled={({ date }) => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    if (date.getFullYear() !== currentYear) return true;
+
+    const month = date.getMonth();
+    return !(month === currentMonth - 1 || month === currentMonth || month === currentMonth + 1);
+  }}
+/>
+
     </div>
   );
 };
